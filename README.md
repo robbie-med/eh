@@ -23,6 +23,15 @@ Glance at it, then send.
 - **Send:** *Save draft* = e-value's Save For Later (still editable). *Submit* needs two taps.
   It's final, and e-value may email people.
 
+## Pre-launch gate
+
+Until launch (mid-November 2026) the login screen shows a waitlist banner, and signups are appended to
+`/opt/eh-proxy/data/notify.jsonl` on the VPS. Logging in without a beta code never sends the credentials
+anywhere. It plays the "you're early" overlay instead (procedural WebAudio music plus a speech-synthesis
+voice). The proxy enforces the gate: with `FB_BETA` set, `/login` returns `403 NOT_YET` unless the
+request carries that code. Testers open `https://eh.robbiemed.org/?beta=<code>` once and the code is
+remembered on that device. At launch, remove `FB_BETA` from the service and restart.
+
 ## Architecture
 
 ```

@@ -10,6 +10,9 @@ WorkingDirectory=/opt/eh-proxy
 Environment=FB_PORT=8104
 Environment=FB_DATA_DIR=/opt/eh-proxy/data
 Environment=FB_ORIGINS=https://eh.robbiemed.org,https://robbie-med.github.io,http://localhost,http://127.0.0.1
+# Pre-launch: /login only works with this code (beta link: https://eh.robbiemed.org/?beta=<code>).
+# Remove the line at launch. Never commit the real code.
+#Environment=FB_BETA=changeme
 # Same residential exit ev-quicklog and duty-hours use (home PC SOCKS5 over Nebula).
 #Environment=EV_SOCKS_PROXY=socks5h://HOME_PC_NEBULA_IP:1080
 ExecStart=/opt/eh-proxy/venv/bin/python /opt/eh-proxy/app.py

@@ -71,7 +71,7 @@ async function api(path, { method = 'GET', body, params } = {}, retried = false)
 
 async function login() {
   if (!settings.username || !settings.password) throw new Error('Log in first.');
-  const d = await api('/login', { method: 'POST', body: { username: settings.username, password: settings.password } }, true);
+  const d = await api('/login', { method: 'POST', body: { username: settings.username, password: settings.password, beta: store.get('beta', '') } }, true);
   session = { token: d.session, userID: d.userID };
   store.set('session', session);
 }
@@ -477,6 +477,120 @@ async function send(final) {
 }
 
 // ---------- boot ----------
+// ---------- pre-launch: you're early ----------
+/** Procedural rave on WebAudio: four-on-the-floor, saw bass, square-lead random walk.
+ *  Key, scale and tempo mutate every 4 bars. onBar(n) fires on each bar. */
+function rave(onBar) {
+  const ac = new (window.AudioContext || window.webkitAudioContext)();
+  const master = ac.createGain();
+  master.gain.value = 0.9;
+  const comp = ac.createDynamicsCompressor();
+  master.connect(comp).connect(ac.destination);
+  const SCALES = [[0, 3, 5, 7, 10], [0, 1, 4, 5, 7, 8, 10], [0, 2, 4, 6, 7, 9, 11], [0, 2, 3, 7, 8], [0, 3, 6, 9]];
+  let root, scale, bpm, bass;
+  const mutate = () => {
+    root = 36 + Math.floor(Math.random() * 8);
+    scale = pick(SCALES);
+    bpm = 140 + Math.random() * 45;
+    bass = Array.from({ length: 4 }, () => Math.floor(Math.random() * 5));
+  };
+  mutate();
+  const hz = m => 440 * 2 ** ((m - 69) / 12);
+  const note = d => root + scale[((d % scale.length) + scale.length) % scale.length] + 12 * Math.floor(d / scale.length);
+  const noise = ac.createBuffer(1, ac.sampleRate / 2, ac.sampleRate);
+  noise.getChannelData(0).forEach((_, i, a) => { a[i] = Math.random() * 2 - 1; });
+
+  function voice(src, t, dur, vol, filter) {
+    const g = ac.createGain();
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    (filter ? src.connect(filter).connect(g) : src.connect(g)).connect(master);
+    src.start(t);
+    src.stop(t + dur + 0.05);
+    return src;
+  }
+  const tone = (type, f, t, dur, vol, fEnd) => {
+    const o = ac.createOscillator();
+    o.type = type;
+    o.frequency.setValueAtTime(f, t);
+    if (fEnd) o.frequency.exponentialRampToValueAtTime(fEnd, t + dur);
+    return voice(o, t, dur, vol);
+  };
+  const hiss = (t, dur, vol, type, freq) => {
+    const s = ac.createBufferSource();
+    s.buffer = noise;
+    const f = ac.createBiquadFilter();
+    f.type = type;
+    f.frequency.value = freq;
+    return voice(s, t, dur, vol, f);
+  };
+
+  let step = 0, next = ac.currentTime + 0.1, lead = 7;
+  const timer = setInterval(() => {
+    while (next < ac.currentTime + 0.15) {
+      const s16 = 60 / bpm / 4, i = step % 16, bar = Math.floor(step / 16);
+      if (i === 0) {
+        if (bar && bar % 4 === 0) mutate();
+        onBar(bar);
+      }
+      if (i % 4 === 0) tone('sine', 160, next, 0.22, 1, 38);                        // kick
+      if (i === 4 || i === 12) { hiss(next, 0.18, 0.5, 'bandpass', 1800); tone('triangle', 190, next, 0.1, 0.3); } // snare
+      if (i % 2) hiss(next, 0.05, Math.random() < 0.3 ? 0.35 : 0.18, 'highpass', 7500); // hats
+      if (i % 2 === 0) tone('sawtooth', hz(note(bass[bar % 4])), next, s16 * 1.7, 0.3); // bass
+      lead = Math.max(0, Math.min(18, lead + pick([-3, -2, -1, 1, 1, 2, 3])));
+      if (Math.random() < 0.8) tone('square', hz(note(lead) + 24), next, s16 * 0.9, 0.12); // lead
+      if (i === 0 && Math.random() < 0.5) tone('sawtooth', hz(note(lead) + 36), next, s16 * 8, 0.06, hz(note(lead) + 24)); // siren
+      next += s16;
+      step++;
+    }
+  }, 25);
+  return {
+    wake: () => ac.resume(),
+    duck: on => master.gain.setTargetAtTime(on ? 0.3 : 0.9, ac.currentTime, 0.08),
+    stop: () => { clearInterval(timer); ac.close(); },
+  };
+}
+
+const TRIP_EMOJI = ['🤪', '🌀', '🍄', '🦄', '👁️', '🛸', '🫠', '🐸', '🌈', '🧠', '🪩', '👽'];
+let tripping = null;
+
+/** Anyone logging in before launch gets this instead. */
+function trip() {
+  if (tripping) return;
+  const ov = el('div', 'trip');
+  const emo = el('div', 'trip-emo', '🤪');
+  const stop = el('button', 'trip-stop', 'make it stop');
+  stop.type = 'button';
+  ov.append(emo, el('div', 'trip-msg', 'YOU’RE EARLY'), el('div', 'trip-sub', 'Come back mid-November 2026'), stop);
+  document.body.append(ov);
+
+  const shout = () => {
+    if (!('speechSynthesis' in window) || speechSynthesis.speaking) return;
+    const u = new SpeechSynthesisUtterance('Youuu’re earlyyyy!! Come back later!!');
+    u.pitch = 0;
+    u.rate = 0.55;
+    u.voice = speechSynthesis.getVoices().find(v => /^en/i.test(v.lang) && /david|daniel|fred|alex|guy|male/i.test(v.name)) || null;
+    u.onstart = () => music.duck(true);
+    u.onend = () => music.duck(false);
+    speechSynthesis.speak(u);
+  };
+  const music = rave(bar => {
+    emo.textContent = pick(TRIP_EMOJI);
+    if (bar % 4 === 0) shout();
+  });
+  ov.addEventListener('click', () => music.wake()); // in case the browser started audio suspended
+  tripping = {
+    stop() {
+      music.stop();
+      if ('speechSynthesis' in window) speechSynthesis.cancel();
+      ov.remove();
+      tripping = null;
+      $('l-status').textContent = 'Not yet. Drop your email up top and we’ll tell you when.';
+    },
+  };
+  stop.addEventListener('click', e => { e.stopPropagation(); tripping.stop(); });
+}
+
 function notified(email) {
   $('notify-form').classList.add('done');
   $('n-status').textContent = `You’re on the list ✓ We’ll email ${email}.`;
@@ -501,6 +615,7 @@ function wire() {
   if (store.get('notified')) notified(store.get('notified'));
   $('login-form').addEventListener('submit', async e => {
     e.preventDefault();
+    if (!store.get('beta')) return trip(); // pre-launch: credentials never leave the device
     settings.username = $('l-user').value.trim();
     settings.password = $('l-pass').value;
     $('l-go').disabled = true;
@@ -511,6 +626,7 @@ function wire() {
       show('inbox');
       refresh();
     } catch (err) {
+      if (err.message === 'NOT_YET') return trip();
       $('l-status').textContent = err.message === 'INVALID_CREDENTIALS' ? 'That login didn’t work.' : err.message;
     } finally {
       $('l-go').disabled = false;
@@ -534,6 +650,13 @@ function wire() {
     location.reload();
   });
   document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeSheet(); $('settings').classList.add('hidden'); } });
+}
+
+// Pre-launch beta link: ?beta=<code> is remembered on this device, then dropped from the URL.
+const betaParam = new URLSearchParams(location.search).get('beta');
+if (betaParam) {
+  store.set('beta', betaParam);
+  history.replaceState(null, '', location.pathname);
 }
 
 wire();

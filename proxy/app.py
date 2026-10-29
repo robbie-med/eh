@@ -6,7 +6,7 @@ Evaluations" for the meh-value PWA. Holds e-value session cookies server-side
 Contains no secrets.
 
 Endpoints (JSON; everything except /login and /ping needs X-Session):
-  POST /login  {username, password}            -> {ok, session, userID}
+  POST /login  {username, password, beta?}     -> {ok, session, userID}   (403 NOT_YET pre-launch, see FB_BETA)
   GET  /evals                                  -> {ok, evals:[{requestid, eimnum, name, updateableid,
                                                    type, subject, requested, activity, site, period, timeframe}]}
   GET  /form?requestid&eimnum&name&updateableid -> {ok, info:{...}, items:[{name, kind, title, prompt,
@@ -38,6 +38,7 @@ EV = 'https://www.e-value.net'
 PORT = int(os.environ.get('FB_PORT', '8104'))
 DATA_DIR = os.environ.get('FB_DATA_DIR', os.path.join(os.path.dirname(__file__), 'data'))
 SESSION_TTL = 8 * 60 * 60  # seconds
+BETA_CODE = os.environ.get('FB_BETA', '')  # set = pre-launch: /login needs this code
 ALLOWED_ORIGINS = tuple(o.strip() for o in os.environ.get(
     'FB_ORIGINS', 'https://eh.robbiemed.org,https://robbie-med.github.io,http://localhost,http://127.0.0.1').split(',') if o.strip())
 
@@ -460,6 +461,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def _login(self):
         body = self._body()
+        if BETA_CODE and not secrets.compare_digest(str(body.get('beta', '')), BETA_CODE):
+            self._send_json({'ok': False, 'reason': 'NOT_YET'}, 403)
+            return
         if not body.get('username') or not body.get('password'):
             self._send_json({'ok': False, 'reason': 'missing credentials'}, 400)
             return

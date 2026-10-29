@@ -3,7 +3,7 @@
  */
 'use strict';
 
-const CACHE = 'eh-v2';
+const CACHE = 'eh-v3';
 const SHELL = ['./', 'index.html', 'app.js', 'style.css', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', event => {
