@@ -1,0 +1,20 @@
+[Unit]
+Description=eh. e-value feedback proxy
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=robbie
+WorkingDirectory=/opt/eh-proxy
+Environment=FB_PORT=8104
+Environment=FB_DATA_DIR=/opt/eh-proxy/data
+Environment=FB_ORIGINS=https://eh.robbiemed.org,https://robbie-med.github.io,http://localhost,http://127.0.0.1
+# Same residential exit ev-quicklog and duty-hours use (home PC SOCKS5 over Nebula).
+#Environment=EV_SOCKS_PROXY=socks5h://HOME_PC_NEBULA_IP:1080
+ExecStart=/opt/eh-proxy/venv/bin/python /opt/eh-proxy/app.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

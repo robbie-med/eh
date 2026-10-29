@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#7c3aed">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>eh.</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon-192.png">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- LOGIN -->
+  <section id="screen-login" class="screen">
+    <form id="notify-form" class="banner">
+      <p class="b-kicker">🚀 Coming mid-November 2026</p>
+      <p class="b-text">Enter your email to be updated.</p>
+      <div class="b-row">
+        <input id="n-email" type="email" inputmode="email" autocomplete="email" placeholder="you@example.com" aria-label="Email" required>
+        <button id="n-go" type="submit">Notify me</button>
+      </div>
+      <p id="n-status" class="b-status" aria-live="polite"></p>
+    </form>
+    <div class="hero">
+      <div class="logo">eh<span>.</span></div>
+      <p class="tagline">your e-value feedback, vibed.</p>
+    </div>
+    <form id="login-form" class="card login">
+      <label>e-value username <input id="l-user" type="text" autocomplete="username" autocapitalize="off" required></label>
+      <label>password <input id="l-pass" type="password" autocomplete="current-password" required></label>
+      <button id="l-go" class="btn primary big" type="submit">Let's go</button>
+      <p id="l-status" class="muted center"></p>
+      <p class="fine">Your login stays on this device and is only sent to the eh. proxy to sign in to e-value.</p>
+    </form>
+  </section>
+
+  <!-- INBOX -->
+  <section id="screen-inbox" class="screen">
+    <header class="top">
+      <div class="logo sm">eh<span>.</span></div>
+      <div class="top-actions">
+        <button id="refresh" class="icon-btn" type="button" aria-label="Refresh">↻</button>
+        <button id="open-settings" class="icon-btn" type="button" aria-label="Settings">⚙︎</button>
+      </div>
+    </header>
+    <h1 id="headline" class="headline">Loading…</h1>
+    <p id="subline" class="muted"></p>
+    <div id="list" class="list"></div>
+  </section>
+
+  <!-- REVIEW SHEET -->
+  <div id="sheet" class="sheet-wrap hidden" aria-modal="true" role="dialog">
+    <div class="sheet">
+      <div class="sheet-head">
+        <button id="sheet-close" class="icon-btn" type="button" aria-label="Close">✕</button>
+        <div class="sheet-title">
+          <div id="s-kind" class="chip"></div>
+          <h2 id="s-subject"></h2>
+          <p id="s-meta" class="muted"></p>
+        </div>
+        <button id="reroll" class="icon-btn" type="button" aria-label="Rewrite everything">🎲</button>
+      </div>
+      <div id="s-vibes" class="vibes compact"></div>
+      <div id="s-body" class="s-body"></div>
+      <div class="sheet-foot">
+        <p id="s-status" class="muted center"></p>
+        <div class="foot-row">
+          <button id="save-draft" class="btn ghost" type="button">Save draft</button>
+          <button id="submit" class="btn primary" type="button">Submit</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SETTINGS -->
+  <div id="settings" class="sheet-wrap hidden" role="dialog" aria-modal="true">
+    <div class="sheet small">
+      <div class="sheet-head">
+        <h2>Settings</h2>
+        <button id="settings-close" class="icon-btn" type="button" aria-label="Close">✕</button>
+      </div>
+      <div class="s-body">
+        <label>Proxy URL <input id="set-proxy" type="url"></label>
+        <button id="forget-answers" class="btn ghost" type="button">Forget remembered answers</button>
+        <button id="logout" class="btn ghost danger" type="button">Log out</button>
+        <p class="fine">Remembered answers: the non-rating questions (like "% of time on rotation") reuse what you picked last time.</p>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+  <script src="app.js"></script>
+</body>
+</html>
