@@ -289,7 +289,7 @@ function renderList() {
   list.replaceChildren();
   const n = evals.length;
   $('headline').textContent = n ? `${n} to go` : 'Inbox zero';
-  $('subline').textContent = errs.todo || (n ? 'Tap a vibe. We’ll write it, you glance, you send.' : 'Nothing pending in e-value. Go touch grass. 🌱');
+  $('subline').textContent = errs.todo || (n ? 'Tap a vibe for a starting draft. Edit it, then send.' : 'Nothing pending in e-value. Go touch grass. 🌱');
   if (!n) list.append(el('div', 'empty', '🎉'));
   evals.forEach((ev, i) => {
     const kind = evKind(ev);
@@ -944,6 +944,10 @@ function renderSheet() {
 
   const body = $('s-body');
   body.replaceChildren();
+  if (form.items.some(it => it.kind === 'text' && !it.confidential)) {
+    body.append(el('p', 'hint', '✏️ These comments are a starting draft. They show the shape of good professional feedback. '
+      + 'Edit them so they say what you actually saw: tap any box to type.'));
+  }
   for (const it of form.items) {
     if (it.kind === 'date' && !it.mandatory) continue; // the "pearls" link-out date box
     const q = el('section', 'q');

@@ -193,6 +193,10 @@ input:focus, textarea:focus { border-color: var(--a1); background: var(--card); 
   background: var(--card); font-size: 1.1rem; box-shadow: var(--shadow);
 }
 .dice.roll { animation: roll .5s cubic-bezier(.2, .9, .3, 1.2); }
+.hint {
+  margin: 0 0 12px; padding: 10px 14px; border-radius: 14px; font-size: .84rem; line-height: 1.4;
+  background: color-mix(in srgb, var(--a1) 9%, var(--card)); color: var(--ink);
+}
 .warn { color: var(--warn); font-size: .85rem; margin: 10px 0 0; }
 
 /* ---------- panes + bottom tabs ---------- */
