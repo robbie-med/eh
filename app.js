@@ -82,110 +82,257 @@ const evIds = ev => ({ requestid: ev.requestid, eimnum: ev.eimnum, name: ev.name
 const rand = (a, b) => a + Math.random() * (b - a);
 const pick = a => a[Math.floor(Math.random() * a.length)];
 
-/** "{Superb|Strong} {clinician|teacher}; $last…" -> one random reading, tidied up. */
-function say(tpl, vars) {
-  let s = Array.isArray(tpl) ? pick(tpl) : tpl;
+/** "{Strong|Solid} {teacher|preceptor}. $who…" -> one random reading, tidied up.
+ *  With a `used` set, a template already used on this form is skipped while fresh ones remain. */
+function fresh(list, used) {
+  const left = used ? list.filter(t => !used.has(t)) : list;
+  const t = pick(left.length ? left : list);
+  used?.add(t);
+  return t;
+}
+function say(tpl, vars, used) {
+  let s = Array.isArray(tpl) ? fresh(tpl, used) : tpl;
   for (let guard = 0; /\{[^{}]*\}/.test(s) && guard < 200; guard++) s = s.replace(/\{([^{}]*)\}/, (_, alts) => pick(alts.split('|')));
   s = s.replace(/\$(\w+)/g, (_, k) => vars[k] ?? '');
-  return s.split('\n').map(line => line.replace(/\s+/g, ' ').replace(/\s+([,.;:])/g, '$1').replace(/\s*—\s*/g, '—').trim()
+  return s.split('\n').map(line => line.replace(/\s+/g, ' ').replace(/\s+([,.;:!])/g, '$1').replace(/([.!?])\1+/g, '$1').trim()
     .replace(/^./, c => c.toUpperCase()).replace(/([.!?]\s+)([a-z])/g, (m, p, c) => p + c.toUpperCase())).join('\n');
 }
 
-// Faculty: one-liners in annual-rating voice. $who = "Dr. Ellen".
+// Faculty. $who = "Dr. Ellen". Praise is per topic of the box; most faculty comment boxes actually ask
+// "one area for improvement in <topic>", which gets a topic-specific "nothing to add" (loved) or a tip.
 const FAC = {
   praise: {
-    loved: [
-      '{Superb|Exceptional|Outstanding} {clinician-educator|teaching attending|preceptor}; {consistently|routinely} {made time to teach|turned every patient into a teaching moment} {despite|even with} {a heavy clinic load|high patient volume|a packed schedule}—{the standard for faculty|a model for residents|my top preceptor this year}.',
-      '{Top-tier|Elite|Absolutely superior} {teacher|preceptor}; {sharp clinical judgment|deep fund of knowledge} {paired with|matched by} {genuine investment in|real care for} resident {growth|learning}—{would work with $who again in a heartbeat|seek out this rotation for this preceptor}.',
+    knowledge: {
+      loved: [
+        '{Exceptional|Outstanding} fund of knowledge, {always current with the literature|consistently up to date with current guidelines}. {Explains the reasoning behind every decision.|Makes the reasoning behind each decision easy to follow.}',
+        '$who’s medical knowledge is {thorough|deep} and {reliable|trustworthy}. {Plans were consistently evidence-based.|I trusted the plans completely.}',
+        '{Remarkably|Very} knowledgeable across the full range of $rot {cases|presentations}, and {generous about sharing it|always willing to share it}.',
+        'Strong command of {current evidence|the literature}, applied {practically|sensibly} to {real patients|everyday cases}. {A great resource on rotation.|A go-to resource for clinical questions.}',
+      ],
+      good: [
+        '{Solid|Strong}, up-to-date medical knowledge. {Plans were sound and well reasoned.|Management decisions were sound and evidence-based.}',
+        'Knowledgeable and practical, with {thorough answers to clinical questions|a good answer to nearly every clinical question}.',
+        '{Reliable|Dependable} clinical knowledge, {grounded in current guidelines|applied well to outpatient care}.',
+        '$who {knows the material well|has a strong fund of knowledge} and {explains it clearly|shares it readily}.',
+      ],
+      fine: [
+        'Sound medical knowledge and {safe clinical decisions|reasonable plans}.',
+        '{Adequate|Appropriate} fund of knowledge for {the rotation|this setting}, and {answered questions when asked|plans were safe}.',
+        'Medical knowledge {met expectations|was appropriate} for {the rotation|this setting}.',
+      ],
+    },
+    teaching: {
+      loved: [
+        '{One of the best teachers I have worked with|An outstanding teacher}. {Turned routine visits into teaching moments.|Made time to teach even on the busiest days.}',
+        'Teaching was {clear, practical, and high-yield|consistently high-yield}. {I left every clinic with something new.|I learned something from nearly every patient.}',
+        'Excellent at teaching in clinic: {asks good questions|uses questions well}, {gives residents room to think|lets residents reason through the case}, and {fills the gaps without lecturing|ties it back to the evidence}.',
+        '$who is clearly invested in teaching, and it shows in {how much residents learn|the quality of every case discussion}.',
+      ],
+      good: [
+        '{Effective|Clear} teacher who {explains the why behind decisions|keeps teaching practical and relevant}.',
+        'Teaching style is {clear and effective|approachable and effective}, with {a good balance of guidance and autonomy|appropriate autonomy for residents}.',
+        '{Made|Regularly made} time to teach {during clinic|between patients}, with {useful pearls|practical takeaways}.',
+        '{Approachable|Patient} teacher. Questions were always welcome.',
+      ],
+      fine: [
+        '{Provided|Offered} teaching {when asked|as time allowed}.',
+        'Teaching {was adequate|met expectations} and was {mostly case-based|focused on the patient in front of us}.',
+        'Willing to answer questions, though most teaching happened {informally|in passing}.',
+      ],
+    },
+    feedback: {
+      loved: [
+        'Gives {specific, timely|clear, actionable} feedback {that I could use right away|in real time}.',
+        'Excellent feedback: {direct but kind|honest and constructive}, and {always specific|always paired with a concrete next step}.',
+        '{Checked in regularly|Made a point of checking in} on my progress and gave specific feedback {throughout the rotation|every week}.',
+      ],
+      good: [
+        'Gave {helpful|useful} feedback {during|throughout} the rotation.',
+        'Feedback was {constructive|clear} and {specific|easy to act on}.',
+        'Open to discussing my performance and {offered|gave} {practical|concrete} suggestions.',
+      ],
+      fine: [
+        'Feedback was {available when requested|provided when asked}.',
+        'Gave {general|some} feedback by the end of the {rotation|block}.',
+      ],
+    },
+    attitude: {
+      loved: [
+        '{Enthusiastic|Energetic}, {positive|upbeat}, and {genuinely invested in residents|clearly invested in resident growth}. {A real role model.|A role model for the physician I want to be.}',
+        'Brings an {excellent|outstanding}, professional attitude to every interaction, with {patients and staff alike|patients, staff, and residents}.',
+        'Treats residents as colleagues and patients with {real|genuine} compassion. {A great|An excellent} role model.',
+        'Enthusiasm for {family medicine|primary care} is contagious, and it made the {rotation|month} better.',
+      ],
+      good: [
+        '{Positive|Professional}, {approachable|supportive} attitude {throughout the rotation|every day}.',
+        '{Respectful|Kind} with patients and {welcoming|supportive} toward residents. A good role model.',
+        'Enthusiastic about {teaching|family medicine} and {easy|pleasant} to work with.',
+      ],
+      fine: [
+        '{Professional|Courteous} and {respectful|approachable} {throughout|during} the rotation.',
+        '{Pleasant|Professional} to work with, and met expectations.',
+      ],
+    },
+    overall: {
+      loved: [
+        '{Outstanding|Excellent} preceptor. {Sharp clinical judgment and a real investment in resident growth.|A strong clinician and an even better teacher.} {I would gladly work with $who again.|I would seek out $who as a preceptor again.}',
+        '{One of the best preceptors I have had.|An exceptional preceptor.} {Clinically excellent|Clinically sharp}, {approachable|easy to learn from}, and {always made time to teach|consistently made time for teaching}.',
+        '$who {sets a high bar|sets the standard} for {faculty|preceptors}: {knowledgeable|clinically excellent}, {kind|supportive}, and {invested in residents|committed to teaching}.',
+        '{A great|An excellent} month working with $who. I {learned a lot|grew a lot} and {felt well supported|always felt supported}.',
+      ],
+      good: [
+        '{Strong|Solid} preceptor. {Practical teaching grounded in everyday outpatient medicine.|Practical, approachable, and focused on resident learning.}',
+        '{Good|Positive} learning experience working with $who, who was {supportive|approachable} and {knowledgeable|clinically solid}.',
+        '{Approachable|Supportive} {attending|preceptor} who {created a good learning environment|made the rotation worthwhile}.',
+        '$who was {easy|a pleasure} to work with and kept teaching {practical|relevant}.',
+      ],
+      fine: [
+        '{Reliable|Steady} {preceptor|attending}. Supervision was {safe|appropriate}, and {questions were answered readily|$who was approachable}.',
+        '{Met expectations as a preceptor|A solid experience overall} for the rotation.',
+        'Provided appropriate supervision {for the rotation|throughout the block}.',
+      ],
+    },
+  },
+  none: { // "Loved it" in an improvement box: say what's already good, specific to the topic
+    knowledge: [
+      'Nothing to add. Medical knowledge is {thorough, current, and reliable|thorough and up to date}.',
+      'None. Knowledge is {current|up to date} and {applied thoughtfully|well applied} to {each patient|every case}.',
+      'No areas for improvement identified. {Consistently evidence-based.|Always well informed and evidence-based.}',
     ],
-    good: [
-      '{Strong|Solid|Highly effective} {preceptor|teaching attending}; {clear|practical|efficient} teaching {grounded in|rooted in} {real-world|everyday} {primary care|outpatient} {practice|medicine}—{residents leave better prepared|a valuable part of the rotation}.',
-      '{Knowledgeable|Approachable|Dependable}, {resident-focused|patient-centered} {attending|preceptor}; {created|fostered} a {supportive|positive|safe} learning environment—{teaching was consistently high-yield|always willing to answer questions}.',
+    teaching: [
+      'None. Teaching style is {effective and clear|clear and practical}.',
+      'Nothing to change. {The teaching worked very well.|Keep teaching exactly this way.}',
+      'No suggestions. {Clinical teaching was consistently high-yield.|Every clinic had real teaching in it.}',
     ],
-    fine: [
-      '{Dependable|Reliable|Steady} {preceptor|attending}; {provided|offered} {sound|safe} {clinical guidance|supervision} and {was approachable|answered questions readily}—{met expectations for the rotation|a solid supervising physician}.',
+    feedback: [
+      'None. Feedback was {already timely and specific|consistently specific and useful}.',
+      'Nothing to add. {Gave the right amount of feedback at the right times.|Feedback was regular and actionable.}',
+    ],
+    attitude: [
+      'None. Maintains an excellent, professional attitude.',
+      'Nothing to improve. {Positive, respectful, and supportive every day.|A consistently positive presence in clinic.}',
+      'No concerns. {A great role model for residents.|Sets a great example for residents.}',
+    ],
+    overall: [
+      'None. {Keep doing what you are doing.|An excellent preceptor as is.}',
+      'Nothing significant to add. {A great rotation with a great preceptor.|I would not change anything.}',
+      'No areas of concern.',
     ],
   },
-  improve: {
-    loved: [
-      '{None noted|Nothing significant|No areas of concern}{—|; }{continue current approach|sustain current teaching style|keep doing exactly this}.',
-      '{None noted|Nothing to add}{—|; }{already|consistently} {operating at the highest level|exceeding expectations} in this area.',
-    ],
+  improve: { // $tip is a verb phrase: "share the evidence behind decisions in real time"
     good: [
-      '{Continue to|Encourage $who to} $tip{—|; }{already strong|already effective} in this area.',
-      '{Minor|Only minor} {point|suggestion}: {continue to|encourage $who to} $tip.',
+      'Minor suggestion: $tip.',
+      'Already strong here. One small idea: $tip.',
+      'Could $tip, though this is already a strength.',
+      'A small addition that would help: $tip.',
     ],
     fine: [
-      '{Continue to|Could} $tip to {further|} {strengthen|build on} {an already solid|a solid} {teaching|learning} {experience|environment}.',
-      '{Opportunity|Room} to $tip; {otherwise|overall} {met expectations|a solid experience}.',
-    ],
-    ghost: [
-      '{Did not work with|No direct contact with} $who {this rotation|during this block}{—|; }{unable to evaluate|cannot evaluate|N/A}.',
-      'N/A{—|; }{did not work with|no clinical contact with} $who {this rotation|during this block}.',
+      'Main suggestion: $tip.',
+      'It would help to $tip.',
+      'There is room to $tip.',
+      'I would suggest trying to $tip.',
     ],
   },
   tips: {
-    knowledge: ['{share|walk through} the {evidence|guidelines|literature} behind {decisions|management choices} {in real time|as cases come up}',
-      'point residents to {a key article|a go-to reference|the relevant guideline} after {interesting|complex} cases'],
-    teaching: ['{build in|add} {a quick|a brief} {teaching point|teaching pearl} {at the end of clinic|between patients}',
-      '{set|review} {learning goals|rotation goals} {at the start of the rotation|in the first week}',
-      'give residents {more|increasing} {autonomy|ownership} {in|over} {the plan|management decisions}'],
-    attitude: ['{check in|do a brief check-in} {midway through|halfway through} the rotation',
-      'involve residents {more|earlier} in {shared decision making|planning}'],
-    feedback: ['provide {brief|more frequent|real-time} {feedback|formative feedback} {during|throughout} the rotation',
-      'hold {a short|a quick} mid-rotation feedback {session|check-in}'],
-    other: ['{provide|offer} {brief|regular} {feedback|check-ins} {during|throughout} the rotation',
-      'set {clear|explicit} {expectations|goals} {on day one|at the start of the rotation}'],
+    knowledge: ['share the evidence behind management decisions in real time', 'point residents to a key article or guideline after interesting cases',
+      'walk through the differential out loud on complex patients', 'share go-to references for common outpatient problems'],
+    teaching: ['build in a quick teaching point at the end of clinic', 'set learning goals together at the start of the rotation',
+      'give residents more ownership of the plan', 'ask residents to commit to a plan before discussing the case', 'schedule a short weekly topic review'],
+    feedback: ['give brief, specific feedback after a few patients each day', 'hold a short mid-rotation feedback check-in',
+      'pair each piece of feedback with one concrete next step'],
+    attitude: ['check in with residents midway through the rotation', 'involve residents earlier in shared decision making',
+      'introduce residents to the clinic team on the first day'],
+    overall: ['set clear expectations on the first day', 'offer regular check-ins throughout the rotation', 'share more clinical reasoning out loud'],
   },
+  ghost: [
+    'Did not work with $who {this rotation|during this block}, so unable to evaluate.',
+    'N/A. No clinical contact with $who {this rotation|during this block}.',
+    'Unable to evaluate. I did not work with $who {this rotation|during this block}.',
+    'N/A. I was not supervised by $who {this rotation|during this block}.',
+    'No direct contact with $who {this rotation|during this block}, so I cannot comment.',
+    'Not applicable. $who did not precept me {this rotation|during this block}.',
+    'Cannot evaluate. I had no {shifts|clinic sessions} with $who {this rotation|during this block}.',
+  ],
 };
+const facTopic = t => (/feedback/.test(t) ? 'feedback' : /knowledge/.test(t) ? 'knowledge' : /teach|skill|didactic|lectur/.test(t) ? 'teaching'
+  : /attitude|enthusias|role model|professional|respect/.test(t) ? 'attitude' : 'overall');
 
-// Rotation: Strengths / Weaknesses / Suggestions lines. $rot = "OPHTH".
+// Rotation. $rot = "OPHTH".
 const ROT = {
   strengths: {
-    loved: ['{High-yield|Outstanding|Exceptional} rotation; {broad|rich|excellent} exposure to {core|high-yield|bread-and-butter} $rot {presentations|pathology|cases}—{directly applicable to|immediately relevant to} {family medicine|primary care} {practice|}. {Preceptors|Faculty} {fully invested in|genuinely committed to} {teaching|resident education}.'],
-    good: ['{Solid|Strong|Well-run} rotation; {good|consistent} exposure to {common|core} $rot {presentations|complaints|cases} {relevant to|seen in} {family medicine|primary care}. {Preceptors|Faculty} {approachable|welcoming} and {willing to teach|teaching-focused}.'],
-    fine: ['{Reasonable|Adequate|Useful} exposure to {common|core} $rot {presentations|cases} {relevant to|applicable to} {primary care|outpatient practice}; {staff|preceptors} {welcoming|helpful|supportive}.'],
+    loved: [
+      '{High-yield|Excellent} rotation with {broad|rich} exposure to {core|bread-and-butter} $rot {presentations|problems} that come up {all the time|constantly} in {family medicine|primary care}. {Preceptors were invested in teaching.|Faculty were genuinely invested in teaching.}',
+      'One of the {most useful|best} rotations {this year|so far}: {plenty of hands-on time|lots of hands-on experience}, {excellent teaching|great teaching}, and a {welcoming|supportive} team.',
+      '{Outstanding|Excellent} learning environment. I finished {far more comfortable|much more confident} managing common $rot {problems|complaints} in {clinic|the outpatient setting}.',
+    ],
+    good: [
+      '{Solid|Strong|Well-organized} rotation with {good|consistent} exposure to {common|core} $rot {presentations|complaints} relevant to {primary care|family medicine}.',
+      '{Good|Useful} {mix|variety} of $rot cases, and preceptors were {approachable|welcoming} and {willing|happy} to teach.',
+      '{Practical|Relevant} rotation. I {feel more comfortable with|am more confident with} {common|everyday} $rot {problems|complaints}.',
+    ],
+    fine: [
+      '{Reasonable|Adequate} exposure to {common|core} $rot {presentations|cases}, and {the staff were welcoming|the team was helpful}.',
+      '{Useful|Some useful} exposure to $rot {problems|cases} {relevant to|seen in} primary care.',
+    ],
   },
   weaknesses: {
-    loved: ['{Minimal|None significant|Very few}; {rotation|block} {felt short|went by quickly}—{would welcome more time|more weeks would only help}.'],
-    good: ['{Minor|Few}; {hands-on|independent} {time|opportunities} {limited at times|varied} {by|with} {clinic pace|patient volume}.'],
-    fine: ['{Resident role|Expectations} {not always clearly defined|could be clearer}; {hands-on|independent} {time|involvement} {limited|variable} {at times|on busier days}.'],
+    loved: ['{Very few|Minimal}. The {rotation felt short|block went by quickly}, and more time would only help.',
+      '{Hard to find any|Nothing significant}. Perhaps {a bit|slightly} more hands-on time.'],
+    good: ['{Only minor ones|Minor}. Hands-on time {varied|was limited at times} depending on clinic {pace|volume}.',
+      'Some days {were slower|had lower volume}, which left less hands-on {time|involvement}.',
+      'The resident role could be defined a bit more clearly on {busy|some} days.'],
+    fine: ['{The resident role was|Expectations were} not always clear, and hands-on {time|involvement} was {limited|variable}.',
+      '{Limited|Variable} {hands-on|independent} {time|opportunities}, and much of the time was observational.'],
   },
   suggestions: {
-    loved: ['{Sustain|Maintain|Keep} {current structure|current format}; {consider adding|could add} {a short|a brief} {high-yield reading list|orientation} to {maximize|boost} {day-one readiness|learning from the start}.'],
-    good: ['{Add|Consider} {a brief|a short} {orientation|goals list} {on day one|at the start} to {maximize|get the most out of} {the rotation|hands-on time}.'],
-    fine: ['{Define|Clarify} {resident expectations|learning objectives} {on day one|up front}; {add|build in} {more|structured} {hands-on|teaching} {time|opportunities} {where possible|when volume allows}.'],
+    loved: ['{Keep|Maintain} the current {structure|format}. {A short reading list|A brief orientation} on day one would make it even better.',
+      'No major changes needed. Possibly add a {short high-yield reading list|brief orientation} at the start.'],
+    good: ['{Add|Consider} a {brief|short} {orientation|goals list} on day one to {get more out of|make the most of} hands-on time.',
+      '{Building in|Scheduling} {protected|dedicated} hands-on time {each week|a few times a week} would {help|add a lot}.',
+      'A short list of {high-yield topics|key topics} to read before starting would help residents hit the ground running.'],
+    fine: ['{Define|Clarify} resident {expectations|responsibilities} {on day one|up front}, and {build in|add} more {hands-on|structured teaching} time.',
+      'More structure would help: {learning goals|clear objectives} at the start and {more|regular} hands-on {opportunities|time}.'],
   },
 };
-const ROT_SWOT = v => `Strengths: ${ROT.strengths[v][0]}\nWeaknesses: ${ROT.weaknesses[v][0]}\nSuggestions: ${ROT.suggestions[v][0]}`;
+const ROT_SWOT = (v, vars, used) => ['Strengths', 'Weaknesses', 'Suggestions']
+  .map(k => `${k}: ${say(ROT[k.toLowerCase()][v], vars, used)}`).join('\n');
 
-// Procedures (you are rating your own precepted procedure). $proc = "POCUS-OB/GYN".
+// Procedures (your own precepted procedure). $proc = "POCUS-OB/GYN".
 const PROC = {
-  positive: ['{Completed|Performed} $proc {under direct supervision|with preceptor oversight}; {sound|appropriate} {preparation|setup|patient positioning} and {clear|effective} {communication with the patient|patient explanation}. {Obtained|Achieved} {adequate|standard|diagnostic} {views|results} {with guidance|with minimal prompting}.'],
-  improve: ['{Continue to|Will continue to} {build|develop} {speed|efficiency|consistency} {with|in} {the technical steps|technique} {through|via} {additional|more} {supervised|} {repetitions|reps|cases} {before performing independently|toward independence}.'],
+  positive: [
+    '{Completed|Performed} $proc {under direct supervision|with preceptor oversight}. {Sound|Appropriate} {preparation and setup|patient positioning}, {clear|effective} communication with the patient, and {adequate|diagnostic} results {with guidance|with minimal prompting}.',
+    '{Good|Solid} preparation for $proc. {Explained the procedure clearly|Obtained consent and explained each step} and {kept the patient comfortable|checked in with the patient throughout}.',
+    '$proc {performed|completed} safely {with appropriate supervision|under supervision}. Technique {is improving|continues to improve} {with each case|with repetition}.',
+  ],
+  improve: [
+    '{Will continue to|Plan to} build {speed|efficiency|consistency} in {the technical steps|technique} through more supervised {repetitions|cases}.',
+    '{Next step|Goal}: more supervised {cases|repetitions} to {build confidence|become more efficient} before performing independently.',
+    'Focus on {efficiency|smoother technique} through {more|additional} supervised practice.',
+  ],
 };
 
 function vibeKey(v) { return v === 'ghost' ? 'fine' : v; }
+const IMPROVE_RE = /improv|weakness|change|better|suggest/;
 
 /** A text answer for one question, or '' to leave blank (confidential boxes are always left blank). */
-function writeComment(it, kind, vibe, vars) {
+function writeComment(it, kind, vibe, vars, used) {
   const t = `${it.title} ${it.prompt}`.toLowerCase();
   if (it.confidential || /confidential|pearl/.test(t)) return '';
   const v = vibeKey(vibe);
-  if (kind === 'proc') return say(/improv/.test(it.title.toLowerCase()) ? PROC.improve : PROC.positive, vars);
+  if (kind === 'proc') return say(/improv/.test(it.title.toLowerCase()) ? PROC.improve : PROC.positive, vars, used);
   if (kind === 'rot') {
-    if (/strength|weakness/.test(t)) return say(ROT_SWOT(v), vars);
-    if (/schedule|suggest|change|improv/.test(t)) return say(ROT.suggestions[v], vars);
-    return say(ROT.strengths[v], vars);
+    if (/strength/.test(t) && /weakness/.test(t)) return ROT_SWOT(v, vars, used);
+    if (/weakness|improv/.test(t)) return say(ROT.weaknesses[v], vars, used);
+    if (/schedule|suggest|change/.test(t)) return say(ROT.suggestions[v], vars, used);
+    return say(ROT.strengths[v], vars, used);
   }
-  if (vibe === 'ghost') return say(FAC.improve.ghost, vars);
-  if (/improv|weakness|change|better/.test(t)) {
-    const topic = /knowledge/.test(t) ? 'knowledge' : /feedback/.test(t) ? 'feedback'
-      : /attitude|enthusias|role model/.test(t) ? 'attitude' : /teach|skill|didactic/.test(t) ? 'teaching' : 'other';
-    const tip = say(FAC.tips[topic], vars).replace(/^./, c => c.toLowerCase());
-    return say(FAC.improve[vibe] || FAC.improve[v], { ...vars, tip });
+  if (vibe === 'ghost') return say(FAC.ghost, vars, used);
+  const topic = facTopic(t);
+  if (IMPROVE_RE.test(t)) {
+    if (v === 'loved') return say(FAC.none[topic], vars, used);
+    return say(FAC.improve[v], { ...vars, tip: say(FAC.tips[topic], vars, used).replace(/^./, c => c.toLowerCase()) }, used);
   }
-  return say(FAC.praise[v], vars);
+  return say(FAC.praise[topic][v], vars, used);
 }
 
 // ---------- ratings ----------
@@ -233,7 +380,7 @@ function varsFor(ev, form) {
 }
 
 /** Fresh answers for a vibe. Keeps your manual edits only when asked (vibe switch keeps none). */
-function generate(ev, form, vibe) {
+function generate(ev, form, vibe, used = new Set()) {
   const kind = evKind(ev), vars = varsFor(ev, form);
   const band = (VIBES.find(v => v.id === vibe) || VIBES[1]).band || VIBES[2].band;
   const mood = rand(band[0], band[1]); // one mood per evaluation so ratings hang together
@@ -244,7 +391,7 @@ function generate(ev, form, vibe) {
       const na = naOption(it);
       answers[it.name] = scale ? (vibe === 'ghost' && na ? na.v : rate(scale, vibe, mood)) : (it.value || defaultChoice(it));
     } else if (it.kind === 'text') {
-      answers[it.name] = writeComment(it, kind, vibe, vars) || it.value;
+      answers[it.name] = writeComment(it, kind, vibe, vars, used) || it.value;
     } else if (it.kind === 'date') {
       answers[it.name] = it.mandatory ? new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) : it.value;
     } else {
@@ -915,7 +1062,8 @@ async function openReview(ev, vibe, btn) {
   try {
     const form = forms[ev.eimnum] || (forms[ev.eimnum] = await api('/form', { params: evIds(ev) }));
     if (!form.items.length) throw new Error('Couldn’t read this form — finish it on e-value.');
-    open = { ev, form, vibe, answers: generate(ev, form, vibe), armed: false };
+    const used = new Set(); // templates already on this form, so boxes and the dice never repeat
+    open = { ev, form, vibe, used, answers: generate(ev, form, vibe, used), armed: false };
     renderSheet();
     $('sheet').classList.remove('hidden');
     document.body.classList.add('locked');
@@ -939,7 +1087,7 @@ function renderSheet() {
   $('s-kind').className = `chip k-${kind}`;
   $('s-subject').textContent = kind === 'rot' ? ev.activity || ev.subject : (form.info.Subject || ev.subject).split(',')[0];
   $('s-meta').textContent = [form.info['Time Period'] || ev.period, form.info.Procedure, ev.site].filter(Boolean).join(' · ');
-  $('s-vibes').replaceChildren(...vibeRow(v => { open.vibe = v; open.answers = generate(ev, form, v); renderSheet(); }, kind, vibe).childNodes);
+  $('s-vibes').replaceChildren(...vibeRow(v => { open.vibe = v; open.used = new Set(); open.answers = generate(ev, form, v, open.used); renderSheet(); }, kind, vibe).childNodes);
   $('s-vibes').className = 'vibes compact';
 
   const body = $('s-body');
@@ -993,7 +1141,7 @@ function renderSheet() {
         dice.type = 'button';
         dice.setAttribute('aria-label', 'Rewrite this comment');
         dice.addEventListener('click', () => {
-          ta.value = open.answers[it.name] = writeComment(it, evKind(ev), open.vibe, varsFor(ev, form));
+          ta.value = open.answers[it.name] = writeComment(it, evKind(ev), open.vibe, varsFor(ev, form), open.used);
           dice.classList.remove('roll'); void dice.offsetWidth; dice.classList.add('roll');
           grow(); updateFoot();
         });
@@ -1251,7 +1399,7 @@ function wire() {
   });
   $('sheet-close').addEventListener('click', closeSheet);
   $('sheet').addEventListener('click', e => { if (e.target === $('sheet')) closeSheet(); });
-  $('reroll').addEventListener('click', () => { open.answers = generate(open.ev, open.form, open.vibe); renderSheet(); });
+  $('reroll').addEventListener('click', () => { open.used = new Set(); open.answers = generate(open.ev, open.form, open.vibe, open.used); renderSheet(); });
   $('submit').addEventListener('click', () => send(true));
   $('save-draft').addEventListener('click', () => send(false));
   $('open-settings').addEventListener('click', () => { $('set-proxy').value = settings.proxy || DEFAULT_PROXY; $('settings').classList.remove('hidden'); });
