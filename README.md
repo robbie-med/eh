@@ -23,14 +23,17 @@ Glance at it, then send.
 - **Send:** *Save draft* = e-value's Save For Later (still editable). *Submit* needs two taps.
   It's final, and e-value may email people.
 
-## Pre-launch gate
+## Launched (Nov 14, 2026)
 
-Until launch (mid-November 2026) the login screen shows a waitlist banner, and signups are appended to
-`/opt/eh-proxy/data/notify.jsonl` on the VPS. Logging in without a beta code never sends the credentials
-anywhere. It plays the "you're early" overlay instead (procedural WebAudio music plus a speech-synthesis
-voice). The proxy enforces the gate: with `FB_BETA` set, `/login` returns `403 NOT_YET` unless the
-request carries that code. Testers open `https://eh.robbiemed.org/?beta=<code>` once and the code is
-remembered on that device. At launch, remove `FB_BETA` from the service and restart.
+The beta gate, waitlist banner and `/notify` endpoint are gone. Pre-launch signups are still in
+`/opt/eh-proxy/data/notify.jsonl` on the VPS.
+
+## Fun mode
+
+Both are off by default and live in the header (💥, 🎵) and Settings. Emoji explosions fire on every button
+tap, with a bigger burst on Submit. Music is procedural WebAudio (a 16-step sequencer that re-rolls key,
+scale, tempo and bass every 8 bars) in three moods: happy, miserable or foolish. Auto picks the mood from
+your About-you average: 7+ happy, 5.5–7 foolish, under 5.5 miserable.
 
 ## Architecture
 

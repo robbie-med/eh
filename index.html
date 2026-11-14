@@ -15,15 +15,6 @@
 <body>
   <!-- LOGIN -->
   <section id="screen-login" class="screen">
-    <form id="notify-form" class="banner">
-      <p class="b-kicker">🚀 Coming mid-November 2026</p>
-      <p class="b-text">Enter your email to be updated.</p>
-      <div class="b-row">
-        <input id="n-email" type="email" inputmode="email" autocomplete="email" placeholder="you@example.com" aria-label="Email" required>
-        <button id="n-go" type="submit">Notify me</button>
-      </div>
-      <p id="n-status" class="b-status" aria-live="polite"></p>
-    </form>
     <div class="hero">
       <div class="logo">eh<span>.</span></div>
       <p class="tagline">your e-value feedback, vibed.</p>
@@ -42,6 +33,8 @@
     <header class="top">
       <div class="logo sm">eh<span>.</span></div>
       <div class="top-actions">
+        <button id="fun-btn" class="icon-btn fun" type="button" aria-label="Emoji explosions" aria-pressed="false">💥</button>
+        <button id="music-btn" class="icon-btn fun" type="button" aria-label="Music" aria-pressed="false">🎵</button>
         <button id="refresh" class="icon-btn" type="button" aria-label="Refresh">↻</button>
         <button id="open-settings" class="icon-btn" type="button" aria-label="Settings">⚙︎</button>
       </div>
@@ -110,6 +103,13 @@
       </div>
       <div class="s-body">
         <label>Proxy URL <input id="set-proxy" type="url"></label>
+        <div class="fun-set">
+          <h3>Fun</h3>
+          <label class="switch"><input id="fun-bursts" type="checkbox"> 💥 Emoji explosions on every tap</label>
+          <label class="switch"><input id="fun-music" type="checkbox"> 🎵 Procedural music</label>
+          <div id="fun-mood" class="chips"></div>
+          <p id="fun-auto" class="fine left"></p>
+        </div>
         <button id="forget-answers" class="btn ghost" type="button">Forget remembered answers</button>
         <button id="logout" class="btn ghost danger" type="button">Log out</button>
         <p class="fine">Remembered answers: the non-rating questions (like "% of time on rotation") reuse what you picked last time.</p>

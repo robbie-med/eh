@@ -71,7 +71,7 @@ async function api(path, { method = 'GET', body, params } = {}, retried = false)
 
 async function login() {
   if (!settings.username || !settings.password) throw new Error('Log in first.');
-  const d = await api('/login', { method: 'POST', body: { username: settings.username, password: settings.password, beta: store.get('beta', '') } }, true);
+  const d = await api('/login', { method: 'POST', body: { username: settings.username, password: settings.password } }, true);
   session = { token: d.session, userID: d.userID };
   store.set('session', session);
 }
@@ -404,19 +404,102 @@ function sec(title, sub) {
   s.append(h);
   return s;
 }
-function bar(label, value, max, note, flag) {
+// Who wrote it. Fixed order = fixed colors (--s1..--s4, validated categorical palette), never re-assigned by rank.
+const SOURCES = [['Faculty', /attending|direct observ|faculty|precept/i], ['Peers', /resident|peer/i], ['Nurses', /nurse/i], ['Other', /./]];
+const source = type => SOURCES.find(([, re]) => re.test(type))[0];
+const sourceColor = s => `--s${SOURCES.findIndex(([n]) => n === s) + 1}`;
+function legend(counts) { // [[source, n]] -> swatch + name + n; identity never color-alone
+  const l = el('div', 'legend');
+  for (const [s, n] of counts) {
+    const i = el('span', 'lg');
+    const sw = el('i', 'sw');
+    sw.style.background = `var(${sourceColor(s)})`;
+    i.append(sw, document.createTextNode(`${s} ${n}`));
+    l.append(i);
+  }
+  return l;
+}
+
+/** Every evaluation as a dot (its average) with a whisker from its lowest to highest rating; tap opens it. */
+function dotPlot(points) { // [{d, s, lo, hi, src, label, onTap}]
+  const W = 340, H = 200, L = 24, R = 10, T = 10, B = 24, NS = 'http://www.w3.org/2000/svg';
+  const t0 = Math.min(...points.map(p => +p.d)), t1 = Math.max(...points.map(p => +p.d));
+  const y0 = Math.min(5, Math.floor(Math.min(...points.map(p => p.lo)))), y1 = 9;
+  const X = d => L + (t1 > t0 ? (+d - t0) / (t1 - t0) : 0.5) * (W - L - R);
+  const Y = v => T + ((y1 - v) / (y1 - y0)) * (H - T - B);
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.setAttribute('class', 'dots');
+  svg.setAttribute('role', 'img');
+  svg.setAttribute('aria-label', `${points.length} evaluations, average rating by date`);
+  const mk = (tag, attrs, parent = svg) => {
+    const n = document.createElementNS(NS, tag);
+    for (const k in attrs) n.setAttribute(k, attrs[k]);
+    parent.append(n);
+    return n;
+  };
+  for (let v = y0; v <= y1; v++) {
+    mk('line', { x1: L, x2: W - R, y1: Y(v), y2: Y(v), class: 'grid' });
+    mk('text', { x: L - 7, y: Y(v) + 3.5, class: 'axis', 'text-anchor': 'end' }).textContent = v;
+  }
+  for (const f of [0, 0.5, 1]) {
+    const d = new Date(t0 + f * (t1 - t0));
+    mk('text', { x: L + f * (W - L - R), y: H - 6, class: 'axis', 'text-anchor': ['start', 'middle', 'end'][f * 2] })
+      .textContent = `${d.toLocaleDateString('en-US', { month: 'short' })} ’${String(d.getFullYear()).slice(2)}`;
+  }
+  for (const p of points) {
+    const g = mk('g', { class: 'dot', tabindex: 0, role: 'button', style: `--c: var(${sourceColor(p.src)})` });
+    mk('title', {}, g).textContent = p.label;
+    mk('circle', { cx: X(p.d), cy: Y(p.s), r: 11, class: 'hit' }, g); // hit target bigger than the mark
+    if (p.hi - p.lo > 0.05) mk('line', { x1: X(p.d), x2: X(p.d), y1: Y(p.lo), y2: Y(p.hi), class: 'whisk' }, g);
+    mk('circle', { cx: X(p.d), cy: Y(p.s), r: 4.5, class: 'mark' }, g);
+    g.addEventListener('click', p.onTap);
+    g.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); p.onTap(); } });
+  }
+  const w = el('div', 'dotwrap');
+  w.append(svg);
+  return w;
+}
+
+/** Competency x month grid; one-hue sequential ramp (lighter = lower), value printed in every cell. */
+const RAMP = ['#cde2fb', '#b7d3f6', '#9ec5f4', '#6da7ec', '#3987e5', '#256abf', '#184f95'];
+function heatmap(rowNames, months, cellOf) { // cellOf(row, month) -> [ratings] | undefined
+  const g = el('div', 'heat');
+  g.style.gridTemplateColumns = `minmax(76px, auto) repeat(${months.length}, minmax(0, 1fr))`;
+  g.append(el('div'));
+  for (const m of months) g.append(el('div', 'hm', m.toLocaleDateString('en-US', { month: 'short' })));
+  for (const r of rowNames) {
+    g.append(el('div', 'hr', r));
+    for (const m of months) {
+      const a = cellOf(r, m);
+      const c = el('div', 'hc');
+      if (a?.length) {
+        const avg = mean(a), i = Math.max(0, Math.min(RAMP.length - 1, Math.round(((avg - 5) / 4) * (RAMP.length - 1))));
+        c.style.background = RAMP[i];
+        c.style.color = i >= 4 ? '#fff' : '#0b0b0b';
+        c.textContent = f1(avg);
+        c.title = `${r}, ${m.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}: ${f1(avg)} / 9 from ${a.length} rating${a.length === 1 ? '' : 's'}`;
+      }
+      g.append(c);
+    }
+  }
+  return g;
+}
+
+function bar(label, value, max, note, flag, color) {
   const b = el('div', 'bar' + (flag ? ' flag' : ''));
   const top = el('div', 'bar-top');
   top.append(el('span', 'bar-label', label), el('span', 'bar-val', note ?? `${f1(value)} / ${max}`));
   const track = el('div', 'track');
   const fill = el('div', 'fill');
   fill.style.width = `${Math.max(2, Math.min(100, (100 * value) / max))}%`;
+  if (color) fill.style.background = `var(${color})`;
   track.append(fill);
   b.append(top, track);
   return b;
 }
-function spark(points) { // points: numbers; inline SVG polyline, auto-ranged
-  const lo = Math.min(...points) - 0.3, hi = Math.max(...points) + 0.3;
+function spark(points, domain) { // points: numbers; inline SVG polyline, auto-ranged unless [lo, hi] given
+  const [lo, hi] = domain || [Math.min(...points) - 0.3, Math.max(...points) + 0.3];
   const xy = points.map((p, i) => `${points.length > 1 ? (100 * i) / (points.length - 1) : 50},${30 - (30 * (p - lo)) / (hi - lo || 1)}`).join(' ');
   const w = el('div', 'spark');
   w.innerHTML = `<svg viewBox="0 -2 100 34" preserveAspectRatio="none" aria-hidden="true"><polyline points="${xy}" fill="none" stroke="currentColor" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linejoin="round"/></svg>`;
@@ -511,19 +594,63 @@ function renderDone() {
   }
   pane.append(s2);
 
-  const s3 = sec('History');
+  // faculty: one card per person, ranked by the average you've given them (all-N/A "never met" ones last)
+  const fac = {};
+  for (const x of rows) if (evKind(x.r) === 'fac') (fac[x.r.subject] ||= []).push(x);
+  const people = Object.entries(fac).map(([name, list]) => {
+    const pts = list.map(x => score9(x.v)).filter(s => s != null).reverse(); // oldest -> newest
+    return { name, list, pts, avg: mean(pts), acts: [...new Set(list.map(x => x.r.activity).filter(Boolean))] };
+  }).sort((a, b) => (b.avg ?? -1) - (a.avg ?? -1) || b.list.length - a.list.length);
+  people.forEach((p, i) => { p.rank = i + 1; });
+  if (people.length) {
+    const s3 = sec('Faculty you’ve rated', `${people.length} people · highest first`);
+    capped(s3, 'faculty', people, 10, facultyCard);
+    pane.append(s3);
+  }
+
+  const s4 = sec('Rotations & procedures');
   let month = '';
-  capped(s3, 'history', rows, 20, x => {
+  capped(s4, 'history', rows.filter(x => evKind(x.r) !== 'fac'), 12, x => {
     const frag = document.createDocumentFragment();
     const m = x.d ? x.d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : 'Undated';
     if (m !== month) { frag.append(el('div', 'group', m)); month = m; }
     const k = evKind(x.r), sc = score9(x.v);
-    frag.append(row(k === 'rot' ? x.r.activity || x.r.subject : k === 'proc' ? x.r.type.replace(/^.*Procedure\s*/i, '') || 'Procedure' : x.r.subject,
-      [KIND[k], k === 'fac' ? x.r.activity : '', fmtDate(x.d)].filter(Boolean).join(' · '),
-      sc != null ? f1(sc) : '', () => openViewer('done', x.r), `k-${k}`));
+    frag.append(row(k === 'rot' ? x.r.activity || x.r.subject : x.r.type.replace(/^.*Procedure\s*/i, '') || 'Procedure',
+      [KIND[k], fmtDate(x.d)].join(' · '), sc != null ? f1(sc) : '', () => openViewer('done', x.r), `k-${k}`));
     return frag;
   });
-  pane.append(s3);
+  pane.append(s4);
+}
+
+const openFaculty = new Set(); // expanded cards, until reload
+function facultyCard(p) {
+  const card = el('div', 'fcard' + (openFaculty.has(p.name) ? ' open' : ''));
+  const head = el('button', 'fhead');
+  head.type = 'button';
+  head.setAttribute('aria-expanded', openFaculty.has(p.name));
+  const mid = el('div', 'row-mid');
+  mid.append(el('div', 'row-title', `${p.rank}. ${p.name}`),
+    el('div', 'row-sub', [p.acts.join(', '), `${p.list.length} eval${p.list.length === 1 ? '' : 's'}`, `last ${fmtDate(p.list[0].d)}`].filter(Boolean).join(' · ')));
+  const score = el('div', 'fscore');
+  score.append(el('div', 'fscore-big', p.avg == null ? 'N/A' : f1(p.avg)), el('div', 'fscore-sub', p.avg == null ? 'never met' : '/ 9 avg'));
+  head.append(mid, score);
+  head.addEventListener('click', () => { openFaculty.has(p.name) ? openFaculty.delete(p.name) : openFaculty.add(p.name); renderDone(); });
+  card.append(head);
+  if (p.pts.length > 1) {
+    const sp = spark(p.pts, [4, 9]); // fixed scale so a 0.4 drift doesn't look like a cliff
+    sp.classList.add('mini');
+    sp.title = `Your ratings over time: ${p.pts.map(f1).join(' → ')}`;
+    card.append(sp);
+  } else if (p.avg != null) {
+    card.append(bar('', p.avg, 9, ''));
+  }
+  if (openFaculty.has(p.name)) {
+    for (const x of p.list) {
+      const sc = score9(x.v);
+      card.append(row(x.r.activity || x.r.type, fmtDate(x.d), sc != null ? f1(sc) : 'N/A', () => openViewer('done', x.r), 'inner'));
+    }
+  }
+  return card;
 }
 
 // ---------- About me (evaluations of you) ----------
@@ -593,9 +720,60 @@ function renderAbout() {
     pane.append(s);
   }
 
+  // raw data: every evaluation, coloured by who wrote it
+  const norm = x => x.v.items.filter(it => it.kind === 'rating' && it.value > 0).map(it => (9 * it.value) / it.max);
+  const bySource = {};
+  for (const x of scored) (bySource[source(x.r.type)] ||= []).push(x);
+  const present = SOURCES.map(([s]) => s).filter(s => bySource[s]);
+  if (scored.length > 1) {
+    const s = sec('Every evaluation', 'dot = its average · line = lowest to highest rating · tap one');
+    s.append(legend(present.map(src => [src, bySource[src].length])));
+    s.append(dotPlot(scored.map(x => {
+      const r = norm(x);
+      return {
+        d: x.d, s: x.s, lo: Math.min(...r), hi: Math.max(...r), src: source(x.r.type),
+        label: `${anon(x.r.evaluator)} · ${aboutKind(x.r.type)} · ${fmtDate(x.d)}: ${f1(x.s)} avg (${f1(Math.min(...r))}–${f1(Math.max(...r))})`,
+        onTap: () => openViewer('about', x.r),
+      };
+    })));
+    pane.append(s);
+  }
+
+  if (present.length > 1) {
+    const s = sec('Who rates you', 'average per evaluation');
+    for (const src of present) {
+      const a = bySource[src].map(x => x.s);
+      s.append(bar(src, mean(a), 9, `${f1(mean(a))} · ${a.length}`, false, sourceColor(src)));
+    }
+    pane.append(s);
+  }
+
   if (compRows.length) {
     const s = sec('By competency', 'all ratings, on a 9-point scale');
     for (const [k, avg, n] of compRows) s.append(bar(k, avg, 9, `${f1(avg)} · ${n}`, lowest && k === lowest[0]));
+    pane.append(s);
+
+    // same ratings by month: is the weak area getting better?
+    const months = [...new Set(scored.map(x => x.d && new Date(x.d.getFullYear(), x.d.getMonth(), 1).getTime()))]
+      .filter(Boolean).sort((a, b) => a - b).slice(-8).map(t => new Date(t));
+    const cells = {};
+    for (const x of scored) for (const it of x.v.items) {
+      if (it.kind !== 'rating' || !(it.value > 0) || !x.d) continue;
+      (cells[`${competency(it.title)}|${x.d.getFullYear()}-${x.d.getMonth()}`] ||= []).push((9 * it.value) / it.max);
+    }
+    if (months.length > 1) {
+      const h = sec('Competency by month', 'darker = higher · last 8 months with ratings');
+      h.append(heatmap(compRows.map(([k]) => k), months, (k, m) => cells[`${k}|${m.getFullYear()}-${m.getMonth()}`]));
+      pane.append(h);
+    }
+  }
+
+  const byAct = {};
+  for (const x of scored) if (x.r.activity && !/suppressed/i.test(x.r.activity)) (byAct[x.r.activity] ||= []).push(x.s);
+  const acts = Object.entries(byAct).map(([k, a]) => [k, mean(a), a.length]).sort((a, b) => b[1] - a[1]);
+  if (acts.length > 1) {
+    const s = sec('By rotation', 'average per evaluation, highest first');
+    capped(s, 'acts', acts, 8, ([k, avg, n]) => bar(k, avg, 9, `${f1(avg)} · ${n}`, k === acts.at(-1)[0]));
     pane.append(s);
   }
 
@@ -676,6 +854,8 @@ function renderAll() {
   renderDone();
   renderAbout();
   const unopened = about.filter(r => r.completed && r.tok && !r.viewed).length;
+  renderFun();
+  if (band) syncMusic(); // auto mood may have moved with new ratings
   for (const [id, n] of [['todo-badge', evals.length], ['about-badge', unopened]]) {
     $(id).textContent = n;
     $(id).classList.toggle('hidden', !n);
@@ -880,6 +1060,7 @@ async function send(final) {
     closeSheet();
     renderAll();
     toast(final ? `Sent ✓ ${d.message || ''}` : 'Draft saved in e-value — still editable.');
+    if (final) burst(innerWidth / 2, innerHeight / 3, 40);
   } catch (err) {
     $('save-draft').disabled = false;
     updateFoot();
@@ -887,45 +1068,78 @@ async function send(final) {
   }
 }
 
-// ---------- boot ----------
-// ---------- pre-launch: you're early ----------
-/** Procedural rave on WebAudio: four-on-the-floor, saw bass, square-lead random walk.
- *  Key, scale and tempo mutate every 4 bars. onBar(n) fires on each bar. */
-function rave(onBar) {
+// ---------- fun mode: emoji explosions + procedural music, both opt-in ----------
+const MOODS = {
+  happy: {
+    emoji: ['🎉', '🥳', '✨', '🌈', '💖', '🙌', '😄', '🌟', '🍾'], bpm: [116, 132], root: [45, 52],
+    scales: [[0, 2, 4, 7, 9], [0, 2, 4, 5, 7, 9, 11]], cutoff: 7000,
+    kick: i => i % 4 === 0, snare: true, hats: true, bassEvery: 2, bassWave: 'sawtooth',
+    lead: 'square', leadP: 0.65, leadLen: 0.9, steps: [-2, -1, 1, 1, 2], slide: 0, pad: false, rain: false,
+  },
+  miserable: {
+    emoji: ['😭', '🌧️', '💔', '🥀', '😞', '☔', '🫥', '🕯️', '🧟'], bpm: [56, 68], root: [33, 40],
+    scales: [[0, 2, 3, 5, 7, 8, 10], [0, 1, 3, 5, 7, 8, 10]], cutoff: 1100,
+    kick: i => i === 0 || i === 10, snare: false, hats: false, bassEvery: 8, bassWave: 'triangle',
+    lead: 'triangle', leadP: 0.22, leadLen: 5, steps: [-1, -1, -2, 1], slide: 0.3, pad: true, rain: true,
+  },
+  foolish: {
+    emoji: ['🤪', '🤡', '🐸', '🦆', '🍌', '🎈', '🙃', '🦄', '🧀'], bpm: [150, 190], root: [48, 55],
+    scales: [[0, 2, 4, 6, 8, 10], [0, 1, 4, 5, 7, 8, 11]], cutoff: 5000,
+    kick: i => i % 8 === 0, snare: true, hats: false, bassEvery: 4, bassWave: 'square',
+    lead: 'sawtooth', leadP: 0.7, leadLen: 1.2, steps: [-7, -5, -3, 3, 5, 7], slide: 0.45, pad: false, rain: false,
+  },
+};
+let fun = { bursts: false, music: false, mood: 'auto', ...store.get('fun', {}) };
+let band = null;
+
+/** Auto mood follows your About-you average: 7+ happy, 5.5-7 foolish, below 5.5 miserable. */
+function aboutAvg() {
+  const s = about.filter(r => r.completed && !isMilestone(r)).map(r => score9(views[aboutKey(r)])).filter(x => x != null);
+  return mean(s);
+}
+function currentMood() {
+  if (fun.mood !== 'auto') return fun.mood;
+  const a = aboutAvg() == null ? null : Math.round(aboutAvg() * 10) / 10; // judge the number you see
+  return a == null || a >= 7 ? 'happy' : a >= 5.5 ? 'foolish' : 'miserable';
+}
+
+/** Procedural WebAudio band: a 16-step sequencer whose key, scale, tempo and bass line re-roll every 8 bars. */
+function music(mood) {
+  const M = MOODS[mood];
   const ac = new (window.AudioContext || window.webkitAudioContext)();
   const master = ac.createGain();
-  master.gain.value = 0.9;
-  const comp = ac.createDynamicsCompressor();
-  master.connect(comp).connect(ac.destination);
-  const SCALES = [[0, 3, 5, 7, 10], [0, 1, 4, 5, 7, 8, 10], [0, 2, 4, 6, 7, 9, 11], [0, 2, 3, 7, 8], [0, 3, 6, 9]];
+  master.gain.value = 0.55;
+  const lp = ac.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.frequency.value = M.cutoff;
+  master.connect(lp).connect(ac.createDynamicsCompressor()).connect(ac.destination);
   let root, scale, bpm, bass;
-  const mutate = () => {
-    root = 36 + Math.floor(Math.random() * 8);
-    scale = pick(SCALES);
-    bpm = 140 + Math.random() * 45;
+  const reroll = () => {
+    root = M.root[0] + Math.floor(Math.random() * (M.root[1] - M.root[0]));
+    scale = pick(M.scales);
+    bpm = rand(M.bpm[0], M.bpm[1]);
     bass = Array.from({ length: 4 }, () => Math.floor(Math.random() * 5));
   };
-  mutate();
+  reroll();
   const hz = m => 440 * 2 ** ((m - 69) / 12);
   const note = d => root + scale[((d % scale.length) + scale.length) % scale.length] + 12 * Math.floor(d / scale.length);
-  const noise = ac.createBuffer(1, ac.sampleRate / 2, ac.sampleRate);
+  const noise = ac.createBuffer(1, ac.sampleRate, ac.sampleRate);
   noise.getChannelData(0).forEach((_, i, a) => { a[i] = Math.random() * 2 - 1; });
-
-  function voice(src, t, dur, vol, filter) {
+  function voice(src, t, dur, vol, filter, attack = 0.005) {
     const g = ac.createGain();
-    g.gain.setValueAtTime(vol, t);
-    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + attack);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     (filter ? src.connect(filter).connect(g) : src.connect(g)).connect(master);
     src.start(t);
     src.stop(t + dur + 0.05);
-    return src;
   }
-  const tone = (type, f, t, dur, vol, fEnd) => {
+  const tone = (type, f, t, dur, vol, fEnd, attack) => {
     const o = ac.createOscillator();
     o.type = type;
     o.frequency.setValueAtTime(f, t);
     if (fEnd) o.frequency.exponentialRampToValueAtTime(fEnd, t + dur);
-    return voice(o, t, dur, vol);
+    voice(o, t, dur, vol, null, attack);
   };
   const hiss = (t, dur, vol, type, freq) => {
     const s = ac.createBufferSource();
@@ -933,100 +1147,79 @@ function rave(onBar) {
     const f = ac.createBiquadFilter();
     f.type = type;
     f.frequency.value = freq;
-    return voice(s, t, dur, vol, f);
+    voice(s, t, dur, vol, f);
   };
-
   let step = 0, next = ac.currentTime + 0.1, lead = 7;
   const timer = setInterval(() => {
-    while (next < ac.currentTime + 0.15) {
+    while (next < ac.currentTime + 0.2) {
       const s16 = 60 / bpm / 4, i = step % 16, bar = Math.floor(step / 16);
-      if (i === 0) {
-        if (bar && bar % 4 === 0) mutate();
-        onBar(bar);
+      if (i === 0 && bar && bar % 8 === 0) reroll();
+      if (M.kick(i)) tone('sine', 150, next, 0.25, 0.9, 40);
+      if (M.snare && (i === 4 || i === 12)) hiss(next, 0.15, 0.35, 'bandpass', 1800);
+      if (M.hats && i % 2) hiss(next, 0.04, 0.12, 'highpass', 8000);
+      if (M.rain && i % 4 === 0) hiss(next, s16 * 4.2, 0.05, 'lowpass', 900); // drizzle
+      if (i % M.bassEvery === 0) tone(M.bassWave, hz(note(bass[bar % 4] + (mood === 'foolish' && i % 8 === 4 ? 4 : 0))), next, s16 * M.bassEvery * 0.9, 0.22);
+      if (M.pad && i === 0) for (const d of [0, 2, 4]) tone('sine', hz(note(d) + 12), next, s16 * 16, 0.06, null, 0.6);
+      lead = Math.max(0, Math.min(16, lead + pick(M.steps)));
+      if (Math.random() < M.leadP) {
+        const f = hz(note(lead) + 24);
+        tone(M.lead, f, next, s16 * M.leadLen, 0.09, Math.random() < M.slide ? f * pick([0.5, 0.75, 1.5, 2]) : null);
       }
-      if (i % 4 === 0) tone('sine', 160, next, 0.22, 1, 38);                        // kick
-      if (i === 4 || i === 12) { hiss(next, 0.18, 0.5, 'bandpass', 1800); tone('triangle', 190, next, 0.1, 0.3); } // snare
-      if (i % 2) hiss(next, 0.05, Math.random() < 0.3 ? 0.35 : 0.18, 'highpass', 7500); // hats
-      if (i % 2 === 0) tone('sawtooth', hz(note(bass[bar % 4])), next, s16 * 1.7, 0.3); // bass
-      lead = Math.max(0, Math.min(18, lead + pick([-3, -2, -1, 1, 1, 2, 3])));
-      if (Math.random() < 0.8) tone('square', hz(note(lead) + 24), next, s16 * 0.9, 0.12); // lead
-      if (i === 0 && Math.random() < 0.5) tone('sawtooth', hz(note(lead) + 36), next, s16 * 8, 0.06, hz(note(lead) + 24)); // siren
       next += s16;
       step++;
     }
   }, 25);
-  return {
-    wake: () => ac.resume(),
-    duck: on => master.gain.setTargetAtTime(on ? 0.3 : 0.9, ac.currentTime, 0.08),
-    stop: () => { clearInterval(timer); ac.close(); },
-  };
+  return { mood, wake: () => ac.resume(), stop: () => { clearInterval(timer); ac.close(); } };
 }
 
-const TRIP_EMOJI = ['🤪', '🌀', '🍄', '🦄', '👁️', '🛸', '🫠', '🐸', '🌈', '🧠', '🪩', '👽'];
-let tripping = null;
-
-/** Anyone logging in before launch gets this instead. */
-function trip() {
-  if (tripping) return;
-  const ov = el('div', 'trip');
-  const emo = el('div', 'trip-emo', '🤪');
-  const stop = el('button', 'trip-stop', 'make it stop');
-  stop.type = 'button';
-  ov.append(emo, el('div', 'trip-msg', 'YOU’RE EARLY'), el('div', 'trip-sub', 'Come back mid-November 2026'), stop);
-  document.body.append(ov);
-
-  const shout = () => {
-    if (!('speechSynthesis' in window) || speechSynthesis.speaking) return;
-    const u = new SpeechSynthesisUtterance('Youuu’re earlyyyy!! Come back later!!');
-    u.pitch = 0;
-    u.rate = 0.55;
-    u.voice = speechSynthesis.getVoices().find(v => /^en/i.test(v.lang) && /david|daniel|fred|alex|guy|male/i.test(v.name)) || null;
-    u.onstart = () => music.duck(true);
-    u.onend = () => music.duck(false);
-    speechSynthesis.speak(u);
-  };
-  const music = rave(bar => {
-    emo.textContent = pick(TRIP_EMOJI);
-    if (bar % 4 === 0) shout();
-  });
-  ov.addEventListener('click', () => music.wake()); // in case the browser started audio suspended
-  tripping = {
-    stop() {
-      music.stop();
-      if ('speechSynthesis' in window) speechSynthesis.cancel();
-      ov.remove();
-      tripping = null;
-      $('l-status').textContent = 'Not yet. Drop your email up top and we’ll tell you when.';
-    },
-  };
-  stop.addEventListener('click', e => { e.stopPropagation(); tripping.stop(); });
+function syncMusic() { // start/stop/switch to match fun.music + currentMood()
+  const want = fun.music ? currentMood() : null;
+  if (band && band.mood !== want) { band.stop(); band = null; }
+  if (want && !band) band = music(want);
+  band?.wake();
 }
 
-function notified(email) {
-  $('notify-form').classList.add('done');
-  $('n-status').textContent = `You’re on the list ✓ We’ll email ${email}.`;
+/** Emoji shrapnel from (x, y), themed by mood. Skipped for reduced motion. */
+function burst(x, y, n = 12) {
+  if (!fun.bursts || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const set = MOODS[currentMood()].emoji;
+  for (let k = 0; k < n; k++) {
+    const s = el('span', 'boom', pick(set));
+    const a = Math.random() * 2 * Math.PI, d = rand(50, 70 + n * 8);
+    s.style.left = `${x}px`;
+    s.style.top = `${y}px`;
+    s.style.fontSize = `${rand(16, 34)}px`;
+    s.style.setProperty('--dx', `${Math.cos(a) * d}px`);
+    s.style.setProperty('--dy', `${Math.sin(a) * d - 40}px`);
+    s.style.setProperty('--r', `${rand(-360, 360)}deg`);
+    document.body.append(s);
+    setTimeout(() => s.remove(), 1000);
+  }
 }
 
+function renderFun() {
+  $('fun-btn').classList.toggle('on', fun.bursts);
+  $('fun-btn').setAttribute('aria-pressed', fun.bursts);
+  $('music-btn').classList.toggle('on', fun.music);
+  $('music-btn').setAttribute('aria-pressed', fun.music);
+  $('fun-bursts').checked = fun.bursts;
+  $('fun-music').checked = fun.music;
+  const a = aboutAvg();
+  $('fun-mood').replaceChildren(...chips([['auto', 'Auto'], ['happy', '😄 Happy'], ['miserable', '😭 Miserable'], ['foolish', '🤪 Foolish']],
+    fun.mood, m => { setFun({ mood: m }); }).childNodes);
+  $('fun-auto').textContent = `Auto plays ${currentMood()}${a != null ? `, from your ${f1(a)}/9 average` : ''}.`;
+}
+function setFun(patch) {
+  fun = { ...fun, ...patch };
+  store.set('fun', fun);
+  renderFun();
+  syncMusic();
+}
+
+// ---------- boot ----------
 function wire() {
-  $('notify-form').addEventListener('submit', async e => {
-    e.preventDefault();
-    const email = $('n-email').value.trim();
-    $('n-go').disabled = true;
-    $('n-status').textContent = '';
-    try {
-      await api('/notify', { method: 'POST', body: { email } });
-      store.set('notified', email);
-      notified(email);
-    } catch (err) {
-      $('n-status').textContent = err.message;
-    } finally {
-      $('n-go').disabled = false;
-    }
-  });
-  if (store.get('notified')) notified(store.get('notified'));
   $('login-form').addEventListener('submit', async e => {
     e.preventDefault();
-    if (!store.get('beta')) return trip(); // pre-launch: credentials never leave the device
     settings.username = $('l-user').value.trim();
     settings.password = $('l-pass').value;
     $('l-go').disabled = true;
@@ -1038,13 +1231,20 @@ function wire() {
       renderAll();
       refresh();
     } catch (err) {
-      if (err.message === 'NOT_YET') return trip();
       $('l-status').textContent = err.message === 'INVALID_CREDENTIALS' ? 'That login didn’t work.' : err.message;
     } finally {
       $('l-go').disabled = false;
     }
   });
   $('refresh').addEventListener('click', refresh);
+  $('fun-btn').addEventListener('click', e => { setFun({ bursts: !fun.bursts }); burst(e.clientX, e.clientY, 24); });
+  $('music-btn').addEventListener('click', () => setFun({ music: !fun.music }));
+  $('fun-bursts').addEventListener('change', e => setFun({ bursts: e.target.checked }));
+  $('fun-music').addEventListener('change', e => setFun({ music: e.target.checked }));
+  document.addEventListener('pointerdown', e => {
+    if (fun.music && !band) syncMusic(); // browsers only allow audio after a tap
+    if (e.target.closest('button') && e.target.id !== 'fun-btn') burst(e.clientX, e.clientY);
+  });
   $('sheet-close').addEventListener('click', closeSheet);
   $('sheet').addEventListener('click', e => { if (e.target === $('sheet')) closeSheet(); });
   $('reroll').addEventListener('click', () => { open.answers = generate(open.ev, open.form, open.vibe); renderSheet(); });
@@ -1065,13 +1265,6 @@ function wire() {
   $('viewer-close').addEventListener('click', closeViewer);
   $('viewer').addEventListener('click', e => { if (e.target === $('viewer')) closeViewer(); });
   document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeViewer(); closeSheet(); $('settings').classList.add('hidden'); } });
-}
-
-// Pre-launch beta link: ?beta=<code> is remembered on this device, then dropped from the URL.
-const betaParam = new URLSearchParams(location.search).get('beta');
-if (betaParam) {
-  store.set('beta', betaParam);
-  history.replaceState(null, '', location.pathname);
 }
 
 wire();

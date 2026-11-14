@@ -6,7 +6,7 @@ Evaluations" for the meh-value PWA. Holds e-value session cookies server-side
 Contains no secrets.
 
 Endpoints (JSON; everything except /login and /ping needs X-Session):
-  POST /login  {username, password, beta?}     -> {ok, session, userID}   (403 NOT_YET pre-launch, see FB_BETA)
+  POST /login  {username, password}            -> {ok, session, userID}
   GET  /evals                                  -> {ok, evals:[{requestid, eimnum, name, updateableid,
                                                    type, subject, requested, activity, site, period, timeframe}]}
   GET  /form?requestid&eimnum&name&updateableid -> {ok, info:{...}, items:[{name, kind, title, prompt,
@@ -22,8 +22,7 @@ Endpoints (JSON; everything except /login and /ping needs X-Session):
   POST /views  {src:'done'|'about', section?, toks:[≤25]} -> {ok, views:[{id, info, items:[{title, prompt,
                                                    kind:'rating'|'choice'|'text', value, max?}]}]}  (read-only)
   POST /seen   {tok}                           -> {ok}  marks one evaluation of you "viewed by trainee", as opening it does
-  POST /notify {email}                         -> {ok:true}   (launch mailing list, no session needed)
-  GET  /ping                                   -> {ok:true}
+  GET  /ping                                   -> {ok:true}   (no session needed)
 
 Egress: e-value's Cloudflare bans datacenter ASNs, so set
 EV_SOCKS_PROXY=socks5h://<home-pc-nebula-ip>:1080 to exit through a residential line.
@@ -45,7 +44,6 @@ EV = 'https://www.e-value.net'
 PORT = int(os.environ.get('FB_PORT', '8104'))
 DATA_DIR = os.environ.get('FB_DATA_DIR', os.path.join(os.path.dirname(__file__), 'data'))
 SESSION_TTL = 8 * 60 * 60  # seconds
-BETA_CODE = os.environ.get('FB_BETA', '')  # set = pre-launch: /login needs this code
 ALLOWED_ORIGINS = tuple(o.strip() for o in os.environ.get(
     'FB_ORIGINS', 'https://eh.robbiemed.org,https://robbie-med.github.io,http://localhost,http://127.0.0.1').split(',') if o.strip())
 
@@ -594,16 +592,13 @@ class Handler(BaseHTTPRequestHandler):
                      '/evals': self._evals, '/form': self._form, '/done': self._done, '/about': self._about})
 
     def do_POST(self):
-        self._route({'/login': self._login, '/close': self._close, '/notify': self._notify,
+        self._route({'/login': self._login, '/close': self._close,
                      '/views': self._views, '/seen': self._seen})
 
     # -- handlers --
 
     def _login(self):
         body = self._body()
-        if BETA_CODE and not secrets.compare_digest(str(body.get('beta', '')), BETA_CODE):
-            self._send_json({'ok': False, 'reason': 'NOT_YET'}, 403)
-            return
         if not body.get('username') or not body.get('password'):
             self._send_json({'ok': False, 'reason': 'missing credentials'}, 400)
             return
@@ -614,27 +609,6 @@ class Handler(BaseHTTPRequestHandler):
         token = secrets.token_hex(32)
         self._persist(client, {'createdAt': time.time()}, token)
         self._send_json({'ok': True, 'session': token, 'userID': client.user_id})
-
-    def _notify(self):
-        """Launch mailing list: one JSON line per new address in data/notify.jsonl."""
-        email = str(self._body().get('email', '')).strip().lower()
-        if len(email) > 254 or not re.fullmatch(r'[^@\s]+@[^@\s]+\.[a-z]{2,}', email):
-            self._send_json({'ok': False, 'reason': 'That doesn’t look like an email.'}, 400)
-            return
-        path = os.path.join(DATA_DIR, 'notify.jsonl')
-        with _file_lock:
-            try:
-                with open(path, encoding='utf-8') as f:
-                    known = f.read()
-            except OSError:
-                known = ''
-            if len(known) > 1_000_000:  # ponytail: hard cap instead of rate limiting
-                self._send_json({'ok': False, 'reason': 'List is full.'}, 503)
-                return
-            if f'"{email}"' not in known:
-                with open(path, 'a', encoding='utf-8') as f:
-                    f.write(json.dumps({'email': email, 'at': time.strftime('%Y-%m-%d %H:%M:%S')}) + '\n')
-        self._send_json({'ok': True})
 
     def _evals(self):
         client, sess = self._client()
