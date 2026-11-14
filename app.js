@@ -105,7 +105,7 @@ const FAC = {
     knowledge: {
       loved: [
         '{Exceptional|Outstanding} fund of knowledge, {always current with the literature|consistently up to date with current guidelines}. {Explains the reasoning behind every decision.|Makes the reasoning behind each decision easy to follow.}',
-        '$who’s medical knowledge is {thorough|deep} and {reliable|trustworthy}. {Plans were consistently evidence-based.|I trusted the plans completely.}',
+        "$who's medical knowledge is {thorough|deep} and {reliable|trustworthy}. {Plans were consistently evidence-based.|I trusted the plans completely.}",
         '{Remarkably|Very} knowledgeable across the full range of $rot {cases|presentations}, and {generous about sharing it|always willing to share it}.',
         'Strong command of {current evidence|the literature}, applied {practically|sensibly} to {real patients|everyday cases}. {A great resource on rotation.|A go-to resource for clinical questions.}',
       ],
@@ -193,6 +193,10 @@ const FAC = {
       ],
     },
   },
+  nothing: [ // "Loved it" improvement box, part 1: nothing to suggest… (part 2 is a topic compliment)
+    'Nothing to suggest.', 'No suggestions.', 'None.', 'Nothing to improve.', 'Honestly, nothing to add.',
+    'No areas for improvement.', 'Nothing comes to mind.', 'None that I can think of.',
+  ],
   none: { // "Loved it" in an improvement box: say what's already good, specific to the topic
     knowledge: [
       'Nothing to add. Medical knowledge is {thorough, current, and reliable|thorough and up to date}.',
@@ -329,7 +333,9 @@ function writeComment(it, kind, vibe, vars, used) {
   if (vibe === 'ghost') return say(FAC.ghost, vars, used);
   const topic = facTopic(t);
   if (IMPROVE_RE.test(t)) {
-    if (v === 'loved') return say(FAC.none[topic], vars, used);
+    if (v === 'loved') { // mostly "nothing to suggest" + a real compliment on that topic; sometimes a one-liner
+      return Math.random() < 0.65 ? `${say(FAC.nothing, vars, used)} ${say(FAC.praise[topic].loved, vars, used)}` : say(FAC.none[topic], vars, used);
+    }
     return say(FAC.improve[v], { ...vars, tip: say(FAC.tips[topic], vars, used).replace(/^./, c => c.toLowerCase()) }, used);
   }
   return say(FAC.praise[topic][v], vars, used);
