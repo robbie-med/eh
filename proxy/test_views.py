@@ -42,3 +42,8 @@ d = app.parse_done(DONE)[0]
 assert (d['tok'], d['section'], d['subject'], d['completed'], d['activity']) == \
     ('Xy+z1AbCdEf==', 'Educator_Eval', 'Dr. C', '09/10/2026', 'GAP'), d
 print('ok')
+
+# idle-timeout stub (no login form, User_ID 0) must read as logged out; a live page must not
+assert app.looks_logged_out("var errorDetails = 'User_ID: ' + 0 + ', Subunit_ID: ' + 0 + ', Error: ';")
+assert not app.looks_logged_out("var errorDetails = 'User_ID: ' + 79989729 + ', Subunit_ID: ' + 25 + ', Error: ';")
+print('ok: session timeout')

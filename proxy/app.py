@@ -97,7 +97,9 @@ def js_args(call):
 def looks_logged_out(html):
     # The genuine login screen has the credential form; the post-login
     # frameset references "main_loginscreen" too, so don't key on that.
-    return 'AIpassword' in html or 'name="AIusername"' in html
+    # e-value also times out idle sessions (~20 min) to a stub page with no login form: its error
+    # handler says User_ID 0 and a script bounces to login.cfm. Treat that as logged out too.
+    return 'AIpassword' in html or 'name="AIusername"' in html or bool(re.search(r"User_ID: ' \+ 0 \+", html))
 
 
 # ---------------------------------------------------------------- page parsers
