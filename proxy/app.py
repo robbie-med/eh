@@ -15,6 +15,13 @@ Endpoints (JSON; everything except /login and /ping needs X-Session):
                final=false -> e-value "Save For Later" (still editable)
                final=true  -> e-value "Submit" (locks it; e-value may email people)
                                                -> {ok, message} | {ok:false, reason}
+  GET  /done                                   -> {ok, evals:[{tok, section, type, subject, requested, completed,
+                                                   status, activity, site, period, timeframe}]}  (Completed By Me)
+  GET  /about                                  -> {ok, evals:[{id, tok, type, evaluator, role, activity, site, period,
+                                                   timeframe, requested, completed, viewed}]}  (evaluations of you)
+  POST /views  {src:'done'|'about', section?, toks:[≤25]} -> {ok, views:[{id, info, items:[{title, prompt,
+                                                   kind:'rating'|'choice'|'text', value, max?}]}]}  (read-only)
+  POST /seen   {tok}                           -> {ok}  marks one evaluation of you "viewed by trainee", as opening it does
   POST /notify {email}                         -> {ok:true}   (launch mailing list, no session needed)
   GET  /ping                                   -> {ok:true}
 
@@ -56,6 +63,15 @@ NAV_CHAIN = [
 ]
 
 LIST_PAGE = EV + '/index.cfm?fuseaction=users_evalmodules&menu=19&accessid=2'
+DONE_PAGE = EV + '/index.cfm?fuseaction=users_evalmodulesview&accessid=3&start='
+ABOUT_MENU = EV + '/index.cfm?fuseaction=reports_evaluations_trainee-summ&menu=315&accessid=85'
+VIEW_URL = {  # batch view: eimnum=0,<tok>,<tok>… returns one rendered evaluation per token, in order
+    'done': EV + '/index.cfm?fuseaction=reports_evaluations_reportbody&path=CompletedEvals&confcomid=1&section={section}&eimnum={toks}',
+    'about': EV + '/index.cfm?section=Trainee_Eval&fuseaction=reports_evaluations_reportbody&path=tsummary'
+                  '&eimnum={toks}&wtDate=0&isCustomReport=false&formatid=0',
+}
+TOKEN_RE = r'[A-Za-z0-9+/=]{8,64}'
+DATE_RE = r'\d\d/\d\d/\d{4}'
 # recordAnswer() question types we know how to send. Anything else (true/false, yes/no,
 # multi-select, time, numeric…) is "unsupported": the app sends it to e-value to finish.
 CHOICE_TYPES = {'1', '4', '11', '12', '15', '24'}
@@ -178,6 +194,88 @@ def parse_form(html):
 
         items += [f for n, f in fields.items() if n.startswith('answer_')]
     return info, items, hidden, meta
+
+
+def cells(row):
+    return [text_of(c) for c in re.findall(r'<td[^>]*>([\s\S]*?)</td>', row, re.I)]
+
+
+def first_date(s):
+    m = re.search(DATE_RE, s or '')
+    return m.group(0) if m else ''
+
+
+def parse_done(html):
+    """Completed Evaluations By Me: a grey Activity/Site/Period header table, then a row per evaluation."""
+    out = []
+    for block in re.split(r'<Table bgcolor="EEEEEE"', html)[1:]:
+        head = {k.strip(): text_of(v) for k, v in re.findall(
+            r'<(?:B|strong)>\s*([\w ]+):\s*</(?:B|strong)>\s*</TD>\s*<TD[^>]*>([\s\S]*?)</TD>', block, re.I)}
+        for row in re.findall(r'<TR class="hover">([\s\S]*?)</TR>', block, re.I):
+            m = re.search(r"openeval\('(" + TOKEN_RE + r")','(\w+)'\)", row)
+            c = cells(row)  # type, subject, picture, requested, status, entered by
+            if not m or len(c) < 5:
+                continue
+            out.append({'tok': m.group(1), 'section': m.group(2), 'type': c[0], 'subject': c[1],
+                        'requested': first_date(c[3]), 'completed': first_date(c[4]), 'status': c[4].split(' ')[0],
+                        'activity': head.get('Activity', ''), 'site': head.get('Site', ''),
+                        'period': head.get('Period', ''), 'timeframe': head.get('Time Frame', '')})
+    return out
+
+
+def parse_about(html):
+    """Trainee Evaluation Summary report: one row per evaluation of you, open or completed."""
+    out = []
+    for row in re.findall(r'<TR class="hover">([\s\S]*?)</TR>', html, re.I):
+        c = cells(row)  # print, link, subject, type, evaluator, activity, site, time frame, period, requested,
+        if len(c) < 13:  # completed, last update, viewed by trainee, entered by
+            continue
+        tok = re.search(r'eimnum=([^&"]+)&wtDate', row)
+        eid = re.search(r'name="cb_\d+_(\d+)"', row)
+        who, _, role = c[4].partition(' - ')
+        out.append({'id': eid.group(1) if eid else '', 'tok': unquote(tok.group(1)) if tok else '',
+                    'type': c[3], 'evaluator': who.strip(), 'role': role.strip(), 'activity': c[5], 'site': c[6],
+                    'period': c[7], 'timeframe': c[8], 'requested': first_date(c[9]),
+                    'completed': first_date(c[10]), 'viewed': first_date(c[12])})
+    return out
+
+
+def parse_view(html):
+    """One rendered (read-only) evaluation. Ratings mark the chosen cell ">> 7 <<", choices mark <b>X</b>,
+    comments sit in a padded cell (blank ones are an empty box)."""
+    head = re.split(r'NAME="answerform"', html, flags=re.I)[0]
+    info = {k.strip(): text_of(v) for k, v in re.findall(
+        r'<TD><B>([^<:]+):</B>\s*</TD>\s*<TD[^>]*>([\s\S]*?)</TD>', head, re.I)}
+    eid = re.search(r'name="eimnum" value="(\d+)"', html)
+    items = []
+    for q in re.split(r'<a name="Question_\d+"', html)[1:]:
+        hdr = re.search(r'\(Question&nbsp;\d+&nbsp;of&nbsp;\d+[^)]*\)', q)
+        if not hdr:
+            continue
+        before, rest = q[:hdr.start()], q[hdr.end():]
+        start = before.lower().rfind('<div')  # the title's own div (bold or not; milestones aren't)
+        cut = rest.lower().find('<table')
+        it = {'title': text_of(before[start:]) if start >= 0 else '', 'prompt': text_of(rest[:cut if cut >= 0 else 0])[:400]}
+        mark = re.search(r'>>\s*(-?[\d.]+)\s*<<', rest)
+        if mark:
+            row = rest[rest.lower().rfind('<tr', 0, mark.start()):rest.lower().find('</tr>', mark.end())]
+            nums = [float(n) for c in re.findall(r'<td[^>]*>([\s\S]*?)</td>', row, re.I)
+                    for n in re.findall(r'-?\d+(?:\.\d+)?', c)[:1]]
+            it.update(kind='rating', value=float(mark.group(1)), max=max(nums + [float(mark.group(1))]))
+        elif re.search(r'<strong>Selection</strong>', rest, re.I):
+            picked = [text_of(o) for x, o in re.findall(
+                r'<tr>\s*<td[^>]*>([\s\S]*?)</td>\s*<td[^>]*>([\s\S]*?)</td>\s*</tr>', rest, re.I) if re.search(r'<b>X</b>', x, re.I)]
+            it.update(kind='choice', value=', '.join(picked))
+        else:
+            txt = re.search(r'padding:10px;[^>]*>([\s\S]*?)</td>', rest)
+            it.update(kind='text', value=text_of(txt.group(1)) if txt else '')
+        items.append(it)
+    return {'id': eid.group(1) if eid else '', 'info': info, 'items': items}
+
+
+def split_views(html):
+    """A batch view page -> one chunk per evaluation (each starts with its own print toolbar)."""
+    return re.split(r'class="noprint"', html)[1:]
 
 
 def store_query(ids, it, v):
@@ -351,6 +449,47 @@ class EvClient:
             return True, msg
         return False, msg or f'unexpected e-value reply (HTTP {resp.status_code})'
 
+    def done(self):
+        out, start = [], 1
+        for _ in range(40):  # 50 per page; ponytail: hard page cap instead of trusting the Next link forever
+            html = self.page(DONE_PAGE + str(start))
+            out += parse_done(html)
+            nxt = re.search(r'users_evalmodulesview&start=(\d+)"[^<]*>\s*Next', html)
+            if not nxt or int(nxt.group(1)) <= start:
+                break
+            start = int(nxt.group(1))
+        return out
+
+    def about(self):
+        """Run the 'Completed Evaluations about Trainees' report for yourself, all dates (open rows included)."""
+        self.page(ABOUT_MENU)
+        html = self._request('POST', EV + '/index.cfm', {
+            'fuseaction': 'reports_evaluations_reportbody', 'section': 'trainee_summ', 'path': 'tsummary',
+            'rptcategory': 'tr', 'templateid': '0', 's': '07/01/2015', 'e': time.strftime('%m/%d/%Y'),
+            'DateType': '1', 'subunitid': self.subunit_id, 'subunitlist': self.subunit_id, 'userid': self.user_id,
+            'userList': self.user_id, 'evaluatorUserList': self.user_id, 'inactiveid': '1,2,3', 'evalexam': 'evals',
+            'threshold': '0', 'formatid': '0', 'nodatafound': '0'}).text
+        if looks_logged_out(html):
+            raise SessionExpired()
+        return parse_about(html)
+
+    def views(self, src, section, toks):
+        url = VIEW_URL[src].format(section=section, toks='0,' + ','.join(quote(t, safe='') for t in toks))
+        chunks = split_views(self.page(url))
+        if len(chunks) != len(toks):
+            raise ValueError(f'e-value returned {len(chunks)} evaluations for {len(toks)} asked')
+        return [parse_view(c) for c in chunks]
+
+    def seen(self, tok):
+        """Opening an evaluation of you in e-value auto-posts its hidden 'myform' (viewed by trainee)."""
+        html = self.page(VIEW_URL['about'].format(section='', toks=quote(tok, safe='')))
+        form = re.search(r'<form[^>]*name="myform"[\s\S]*?</form>', html, re.I)
+        if not form:
+            return False
+        data = {attr(t, 'name'): attr(t, 'value') or '' for t in re.findall(r'<input[^>]*>', form.group(0), re.I)}
+        self._request('POST', EV + '//reports/evaluations/xhr_saveeimnum-status.cfm', data)
+        return True
+
     def dump_cookies(self):
         return [{'name': c.name, 'value': c.value, 'domain': c.domain, 'path': c.path}
                 for c in self.http.cookies]
@@ -452,10 +591,11 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         self._route({'/ping': lambda: self._send_json({'ok': True, 'service': 'meh-value-proxy'}),
-                     '/evals': self._evals, '/form': self._form})
+                     '/evals': self._evals, '/form': self._form, '/done': self._done, '/about': self._about})
 
     def do_POST(self):
-        self._route({'/login': self._login, '/close': self._close, '/notify': self._notify})
+        self._route({'/login': self._login, '/close': self._close, '/notify': self._notify,
+                     '/views': self._views, '/seen': self._seen})
 
     # -- handlers --
 
@@ -501,6 +641,41 @@ class Handler(BaseHTTPRequestHandler):
         evals = client.evals()
         self._persist(client, sess)
         self._send_json({'ok': True, 'evals': evals})
+
+    def _done(self):
+        client, sess = self._client()
+        evals = client.done()
+        self._persist(client, sess)
+        self._send_json({'ok': True, 'evals': evals})
+
+    def _about(self):
+        client, sess = self._client()
+        evals = client.about()
+        self._persist(client, sess)
+        self._send_json({'ok': True, 'evals': evals})
+
+    def _views(self):
+        body = self._body()
+        toks, src, section = body.get('toks'), body.get('src'), str(body.get('section', ''))
+        if (src not in VIEW_URL or not isinstance(toks, list) or not 0 < len(toks) <= 25
+                or not all(isinstance(t, str) and re.fullmatch(TOKEN_RE, t) for t in toks)
+                or (src == 'done' and not re.fullmatch(r'\w{1,40}', section))):
+            self._send_json({'ok': False, 'reason': 'need src, toks[1..25] and (for done) section'}, 400)
+            return
+        client, sess = self._client()
+        views = client.views(src, section, toks)
+        self._persist(client, sess)
+        self._send_json({'ok': True, 'views': views})
+
+    def _seen(self):
+        tok = str(self._body().get('tok', ''))
+        if not re.fullmatch(TOKEN_RE, tok):
+            self._send_json({'ok': False, 'reason': 'bad tok'}, 400)
+            return
+        client, sess = self._client()
+        ok = client.seen(tok)
+        self._persist(client, sess)
+        self._send_json({'ok': ok, **({} if ok else {'reason': 'no viewed form on this evaluation'})})
 
     def _form(self):
         ev = self._ev({k: v[0] for k, v in parse_qs(urlparse(self.path).query).items()})

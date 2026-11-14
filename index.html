@@ -37,7 +37,7 @@
     </form>
   </section>
 
-  <!-- INBOX -->
+  <!-- APP: three panes under one header, bottom tabs -->
   <section id="screen-inbox" class="screen">
     <header class="top">
       <div class="logo sm">eh<span>.</span></div>
@@ -46,10 +46,36 @@
         <button id="open-settings" class="icon-btn" type="button" aria-label="Settings">⚙︎</button>
       </div>
     </header>
-    <h1 id="headline" class="headline">Loading…</h1>
-    <p id="subline" class="muted"></p>
-    <div id="list" class="list"></div>
+    <div id="pane-todo" class="pane">
+      <h1 id="headline" class="headline">Loading…</h1>
+      <p id="subline" class="muted"></p>
+      <div id="list" class="list"></div>
+    </div>
+    <div id="pane-done" class="pane"></div>
+    <div id="pane-about" class="pane"></div>
   </section>
+
+  <nav id="tabs" class="tabs hidden" aria-label="Sections">
+    <button type="button" data-tab="todo"><span class="t-ico">✍️</span><span>To do</span><b id="todo-badge" class="badge hidden"></b></button>
+    <button type="button" data-tab="done"><span class="t-ico">✅</span><span>Done</span></button>
+    <button type="button" data-tab="about"><span class="t-ico">🪞</span><span>About me</span><b id="about-badge" class="badge hidden"></b></button>
+  </nav>
+
+  <!-- READ-ONLY VIEWER (completed evals) -->
+  <div id="viewer" class="sheet-wrap hidden" aria-modal="true" role="dialog">
+    <div class="sheet">
+      <div class="sheet-head">
+        <button id="viewer-close" class="icon-btn" type="button" aria-label="Close">✕</button>
+        <div class="sheet-title">
+          <div id="v-kind" class="chip"></div>
+          <h2 id="v-title"></h2>
+          <p id="v-meta" class="muted"></p>
+        </div>
+        <span class="icon-btn ghost-slot" aria-hidden="true"></span>
+      </div>
+      <div id="v-body" class="s-body"></div>
+    </div>
+  </div>
 
   <!-- REVIEW SHEET -->
   <div id="sheet" class="sheet-wrap hidden" aria-modal="true" role="dialog">

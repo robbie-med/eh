@@ -64,6 +64,23 @@ ev-quicklog and duty-hours (`EV_SOCKS_PROXY`).
 - The proxy repeats the browser exactly: re-reads the form, autosaves each answer, then closes. Its POST
   bodies were checked field-for-field against the HAR captures.
 
+## Done and About me tabs (from HAR, Nov 2026)
+
+- **Completed By Me** (`/done`): `index.cfm?fuseaction=users_evalmodulesview&accessid=3&start=N`, 50 rows a page
+  under grey Activity/Site/Period headers. Each row's `openeval('<token>','<Educator_Eval|Activity_Eval|Trainee_Eval>')`.
+- **Evaluations of you** (`/about`): GET `reports_evaluations_trainee-summ&menu=315&accessid=85`, then POST
+  `fuseaction=reports_evaluations_reportbody, section=trainee_summ, path=tsummary` with dates and your
+  user/subunit ids. Empty activity/site lists mean "all". Rows still with the evaluator say `Open` and have no link.
+- **Reading them** (`/views`): `reportbody` with `eimnum=0,<tok>,<tok>…` (≤50, the app sends 25) renders each
+  evaluation in order, each with its own `class="noprint"` toolbar. Done ones use `path=CompletedEvals&section=…`,
+  about-you ones `path=tsummary&formatid=0`. The chosen rating is the `>> N <<` cell, choices are `<b>X</b>`, and
+  comments are the `padding:10px` cell. Batch reads don't set the "viewed" or "printed" stamps.
+- **Viewed** (`/seen`): opening one evaluation of you in e-value auto-POSTs its hidden `myform`
+  (`signature=2, thenote="viewed by trainee on …", eimnum`) to `reports/evaluations/xhr_saveeimnum-status.cfm`.
+  The app does the same only when you open one, never during background reads.
+- The app caches parsed evaluations in localStorage, since completed ones never change. Stats are computed on device.
+- Parser self-check: `python proxy/test_views.py`.
+
 ## Deploy
 
 ```bash
