@@ -47,3 +47,5 @@ print('ok')
 assert app.looks_logged_out("var errorDetails = 'User_ID: ' + 0 + ', Subunit_ID: ' + 0 + ', Error: ';")
 assert not app.looks_logged_out("var errorDetails = 'User_ID: ' + 79989729 + ', Subunit_ID: ' + 25 + ', Error: ';")
 print('ok: session timeout')
+assert not app.login_form("var errorDetails = 'User_ID: ' + 0 + ', Subunit_ID: ' + 0;")  # post-login page is not a failure
+print('ok: login page check')

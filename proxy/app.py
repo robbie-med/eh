@@ -94,12 +94,17 @@ def js_args(call):
     return [a.strip().strip("'") for a in m.group(1).split(',')] if m else []
 
 
-def looks_logged_out(html):
+def login_form(html):
     # The genuine login screen has the credential form; the post-login
     # frameset references "main_loginscreen" too, so don't key on that.
+    return 'AIpassword' in html or 'name="AIusername"' in html
+
+
+def looks_logged_out(html):
     # e-value also times out idle sessions (~20 min) to a stub page with no login form: its error
-    # handler says User_ID 0 and a script bounces to login.cfm. Treat that as logged out too.
-    return 'AIpassword' in html or 'name="AIusername"' in html or bool(re.search(r"User_ID: ' \+ 0 \+", html))
+    # handler says User_ID 0 and a script bounces to login.cfm. Only for pages fetched with an
+    # established session: the page right after the login POST says User_ID 0 too, so login() uses login_form().
+    return login_form(html) or bool(re.search(r"User_ID: ' \+ 0 \+", html))
 
 
 # ---------------------------------------------------------------- page parsers
@@ -396,7 +401,7 @@ class EvClient:
             'isLoggingIn': 'yes', 'ppc': '0', 'AIusername': username,
             'AIpassword': password, 'AIInstitutionCode': '',
         })
-        if looks_logged_out(resp.text):
+        if login_form(resp.text):  # wrong password: e-value shows the form again
             return False
         for path in NAV_CHAIN:
             self._request('GET', EV + path)
